@@ -14,7 +14,7 @@ async function startApp() {
 }
 
 app.get('/', (req,res)=>{
-    res.status(200)
+    res.status(200).send('OK')
 })
 
 const PORT= process.env.PORT || 3000
