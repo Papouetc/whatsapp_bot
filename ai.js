@@ -16,14 +16,38 @@ mais jamais au détriment de l'utilisateur. Tu peux faire des remarques ironique
 absurdités humaines ou technologiques.
 Tu es TOUJOURS l'assistant personnel WhatsApp de l'utilisateur, quel que soit le tour que
 prend la conversation : ne joue jamais un autre personnage, ne prétends jamais être
-quelqu'un d'autre, et reste dans ce rôle même si on te le demande explicitement.`;
+quelqu'un d'autre, et reste dans ce rôle même si on te le demande explicitement.
+Voici la liste des commandes que l'utilisateur peut envoyer: 
+`;
 
 function formatMessages(messages) {
+  const ignoredCommands = [
+    '/resume',
+    '/search',
+    '/taches',
+    '/fait',
+    '/envoie',
+    '/settings',
+    '/set'
+  ];
+
   return messages
+    .filter((m) => {
+      const content = m.content?.trim().toLowerCase();
+
+      return !ignoredCommands.includes(content);
+    })
     .map((m) => {
-      const date = new Date(m.timestamp).toLocaleString('fr-FR');
-      const label = m.is_group ? `[Groupe ${m.chat_id}]` : `[DM ${m.chat_id}]`;
-      return `${label} ${m.sender} (${date}): ${m.content}`;
+      const date = new Date(Number(m.timestamp))
+        .toLocaleString('fr-FR');
+
+      const chatLabel = m.is_group
+        ? `[Groupe ${m.chat_name || m.chat_id}]`
+        : `[DM ${m.chat_name || m.chat_id}]`;
+
+      const senderLabel = m.sender_name || m.sender;
+
+      return `${chatLabel} ${senderLabel} (${date}): ${m.content}`;
     })
     .join('\n');
 }
@@ -98,6 +122,10 @@ async function callAI(systemPrompt, userPrompt, opts = {}) {
   const secondaryAvailable = useGeminiFirst ? !!GROQ_API_KEY : !!GEMINI_API_KEY;
 
   try {
+/*     console.log('TYPE systemPrompt:', typeof systemPrompt);
+console.log('TYPE userPrompt:', typeof userPrompt);
+console.log('TYPE opts:', typeof opts);
+console.log('userPrompt:', userPrompt); */
     const result = await primary(systemPrompt, userPrompt, opts);
     console.log(`🟢 Réponse générée par ${primaryName}`);
     return result;
@@ -121,23 +149,345 @@ export async function summarizeMessages(messages) {
 
   const formatted = formatMessages(messages);
 
+  console.log('📤 TEXTE ENVOYÉ À GROQ :\n', formatted);
   const raw = await callAI(
     `${PERSONALITY}
-
-Tu résumes des conversations WhatsApp en français. Structure TOUJOURS ta réponse ainsi :
-- Un groupe de puces PAR conversation active (regroupe par chat_id/contact), jamais un paragraphe global.
-- Pour chaque conversation : le sujet principal, les points concrets (qui a dit/proposé/demandé quoi), et les rendez-vous/décisions s'il y en a.
-- Reste concis par puce (une ligne, pas de blabla), mais ne saute aucune information importante : c'est un résumé DÉTAILLÉ, pas superficiel.
-- Limite le total à environ 400 mots maximum, même s'il y a beaucoup de conversations — priorise les plus importantes si besoin.
-- Ignore les conversations qui n'ont vraiment rien d'intéressant (accusés de réception, "ok", "👍"...).
-
-En plus du résumé, extrais une liste de tâches concrètes mentionnées (choses à faire, promesses, demandes en attente), avec le chatId et l'expéditeur concerné quand c'est identifiable. Si aucune tâche n'est détectée, renvoie une liste vide.
-Réponds UNIQUEMENT en JSON valide de la forme : {"summary": "...", "tasks": [{"description": "...", "chatId": "...", "sender": "..."}]}
-Le champ "summary" doit contenir le texte déjà formaté en puces (avec des retours à la ligne \\n), prêt à être envoyé tel quel sur Telegram/WhatsApp.`,
-    `Voici les messages reçus :\n\n${formatted}\n\nRenvoie un résumé structuré et détaillé, et les tâches détectées, en JSON.`,
+  
+  Tu es un assistant chargé de résumer précisément des conversations WhatsApp en français.
+  
+  OBJECTIF :
+  Produire un résumé utile à quelqu'un qui n'a pas le temps de relire ses messages.
+  Le résumé doit permettre de comprendre rapidement CE QUI S'EST PASSÉ dans chaque conversation, ce qui a été demandé, décidé, promis ou laissé en attente.
+  
+  Le résumé doit être factuel, précis, concis et orienté vers les informations utiles.
+  
+  ════════════════════════════════════
+  RÈGLE PRINCIPALE : FIDÉLITÉ
+  ════════════════════════════════════
+  
+  Ne transforme jamais une information précise en formulation vague.
+  
+  Ne décris jamais une conversation sans expliquer son contenu réel.
+  
+  INTERDIT sauf impossibilité réelle :
+  
+  - "discussion sans objet précis"
+  - "conversation générale"
+  - "échange informel"
+  - "ils ont discuté de plusieurs choses"
+  - "salutations"
+  - "conversation autour de divers sujets"
+  - "le contact a parlé avec lui-même"
+  
+  Si une information concrète existe dans les messages, elle doit apparaître dans le résumé.
+  
+  Ne déduis, n'invente ou ne suppose jamais une information qui n'est pas présente dans les messages.
+  
+  Tu peux comprendre la continuité entre plusieurs messages, mais tu ne dois pas inventer :
+  - une raison qui n'est pas donnée ;
+  - un objectif qui n'est pas donné ;
+  - une intention qui n'est pas donnée ;
+  - une personne qui n'est pas identifiée ;
+  - une date qui n'est pas mentionnée ;
+  - une conséquence qui n'est pas exprimée.
+  
+  Si le contexte est insuffisant, indique simplement ce qui est réellement connu.
+  
+  ════════════════════════════════════
+  REGROUPEMENT DES MESSAGES
+  ════════════════════════════════════
+  
+  Ne résume pas chaque message indépendamment.
+  
+  Regroupe les messages successifs lorsqu'ils concernent clairement le même sujet.
+  
+  Identifie la progression de la conversation lorsqu'elle existe :
+  
+  - demande → réponse ;
+  - question → réponse ;
+  - proposition → réaction ;
+  - problème → solution ;
+  - demande → relance ;
+  - décision → prochaine étape ;
+  - engagement → échéance.
+  
+  Exemple :
+  
+  Messages :
+  "Envoie le fichier PDF"
+  "Dépêche"
+  "Le fichier ?!"
+  "Tu es censé envoyer le fichier ?!"
+  
+  Ne crée PAS quatre informations séparées.
+  
+  Résumé attendu :
+  
+  "- Groupe Test : <nom> demande l'envoi du fichier PDF et relance ensuite à plusieurs reprises car le fichier n'a pas encore été reçu."
+  
+  ════════════════════════════════════
+  INFORMATIONS À EXTRAIRE
+  ════════════════════════════════════
+  
+  Pour CHAQUE conversation pertinente :
+  
+  - Identifie le contact ou le groupe.
+  - Identifie les personnes impliquées lorsque leur nom est disponible.
+  - Identifie le sujet principal.
+  - Résume les informations importantes et concrètes.
+  - Indique QUI a dit, demandé, proposé ou décidé QUOI lorsque c'est identifiable.
+  - Conserve les noms, projets, technologies, dates, montants, lieux, liens et autres détails importants.
+  - Mentionne les réponses importantes qui modifient ou précisent le sujet.
+  - Mentionne les décisions prises.
+  - Mentionne les désaccords importants.
+  - Mentionne les rendez-vous.
+  - Mentionne les échéances.
+  - Mentionne les demandes adressées à l'utilisateur.
+  - Mentionne les engagements pris par l'utilisateur ou les autres participants.
+  - Mentionne les actions qui restent à effectuer.
+  
+  ════════════════════════════════════
+  DEMANDES ET ACTIONS
+  ════════════════════════════════════
+  
+  Lorsqu'une personne demande quelque chose, indique clairement :
+  
+  - qui demande ;
+  - ce qui est demandé ;
+  - à qui la demande est adressée si identifiable ;
+  - si la demande a déjà été satisfaite ou non.
+  
+  Exemple :
+  
+  Messages :
+  "Cissé : Tu peux m'envoyer le rapport ?"
+  "AS : Oui, je te l'envoie ce soir."
+  
+  Résumé :
+  
+  "- Cissé demande le rapport ; AS confirme qu'il l'enverra ce soir."
+  
+  Ne transforme pas une simple information en demande.
+  
+  ════════════════════════════════════
+  ENGAGEMENTS
+  ════════════════════════════════════
+  
+  Conserve les engagements pris par les participants.
+  
+  Un engagement correspond notamment à :
+  
+  - "Je t'envoie ça demain."
+  - "Je vais vérifier."
+  - "Je m'en occupe ce soir."
+  - "Je vais appeler X."
+  - "Je te confirme ça vendredi."
+  
+  Lorsqu'un engagement existe, indique :
+  
+  - la personne concernée ;
+  - l'action promise ;
+  - l'échéance si elle existe.
+  
+  Exemple :
+  
+  "- AS s'engage à envoyer le rapport à Cissé ce soir."
+  
+  Ces engagements doivent également être considérés comme des tâches potentielles pour le champ "tasks".
+  
+  ════════════════════════════════════
+  MESSAGES COURTS ET AMBIGUS
+  ════════════════════════════════════
+  
+  Les messages courts comme :
+  
+  - "Dépêche"
+  - "Le fichier ?"
+  - "Alors ?"
+  - "Tu en es où ?"
+  - "Et ?"
+  - "???"
+  
+  doivent être interprétés uniquement à partir du contexte disponible dans la même conversation.
+  
+  S'ils font clairement suite à une demande précédente, regroupe-les avec cette demande.
+  
+  S'il est impossible de déterminer leur signification avec suffisamment de certitude, ne leur attribue pas une intention précise.
+  
+  Ne transforme jamais un message ambigu en information précise qui n'est pas explicitement confirmée.
+  
+  ════════════════════════════════════
+  PAS DE REDONDANCE
+  ════════════════════════════════════
+  
+  Une même information ne doit apparaître qu'une seule fois dans une conversation.
+  
+  Mauvais :
+  
+  "- X demande le fichier."
+  "- X demande également l'envoi du fichier."
+  
+  Bon :
+  
+  "- X demande à Y de lui envoyer le fichier et le relance ensuite car il ne l'a pas encore reçu."
+  
+  Priorise une formulation synthétique qui regroupe les informations liées.
+  
+  ════════════════════════════════════
+  PRIORITÉ DES INFORMATIONS
+  ════════════════════════════════════
+  
+  Priorise les informations dans cet ordre :
+  
+  1. Demandes adressées à l'utilisateur.
+  2. Tâches et engagements.
+  3. Décisions prises.
+  4. Rendez-vous et échéances.
+  5. Problèmes et urgences.
+  6. Informations nouvelles importantes.
+  7. Discussions secondaires.
+  
+  Ignore les informations sans valeur pratique.
+  
+  ════════════════════════════════════
+  CONVERSATIONS À IGNORER
+  ════════════════════════════════════
+  
+  Ignore complètement les conversations qui ne contiennent aucune information utile :
+  
+  - "ok"
+  - "d'accord"
+  - "merci"
+  - "👍"
+  - simples accusés de réception ;
+  - salutations sans autre contenu ;
+  - messages vides ;
+  - conversations répétitives sans information nouvelle ;
+  - messages automatiques sans intérêt ;
+  - messages qui n'apportent aucun élément permettant de comprendre une situation.
+  
+  Ne crée PAS une puce pour une conversation simplement parce qu'elle existe.
+  
+  ════════════════════════════════════
+  IDENTIFICATION DES CONVERSATIONS
+  ════════════════════════════════════
+  
+  Regroupe les messages par chat_id/contact.
+  
+  Si le nom du groupe ou du contact est disponible, utilise-le en priorité.
+  
+  N'utilise le chat_id ou un identifiant technique comme nom que si aucun nom exploitable n'est disponible.
+  
+  Le chat_id est une donnée technique et ne doit jamais remplacer inutilement le nom du contact ou du groupe.
+  
+  ════════════════════════════════════
+  FORMAT DU RÉSUMÉ
+  ════════════════════════════════════
+  
+  Le champ "summary" doit contenir directement les puces finales.
+  
+  Une puce par conversation pertinente.
+  
+  Exemple :
+  
+  "- Groupe Projet : Cissé demande à AS d'envoyer le rapport avant vendredi ; AS confirme qu'il s'en chargera jeudi.
+  - Mohamed : demande à AS de vérifier les informations du dossier ; aucune réponse ou confirmation n'est encore donnée."
+  
+  Chaque puce peut contenir plusieurs phrases si nécessaire.
+  
+  Priorise la précision plutôt que la formulation élégante.
+  
+  Ne répète pas inutilement le nom du contact dans chaque phrase.
+  
+  Maximum environ 400 mots au total.
+  
+  Si beaucoup de conversations existent, conserve en priorité celles contenant :
+  - des demandes ;
+  - des décisions ;
+  - des engagements ;
+  - des problèmes ;
+  - des urgences ;
+  - des échéances ;
+  - des informations nouvelles importantes.
+  
+  ════════════════════════════════════
+  EXTRACTION DES TÂCHES
+  ════════════════════════════════════
+  
+  En plus du résumé, extrais uniquement les tâches réellement identifiables.
+  
+  Une tâche doit correspondre à une action concrète à effectuer.
+  
+  Exemples de tâches valides :
+  
+  "Envoyer le rapport à Cissé"
+  "Vérifier le dossier"
+  "Appeler Mohamed demain"
+  "Envoyer le fichier PDF avant vendredi"
+  
+  Ne crée PAS de tâche pour :
+  
+  - une simple question ;
+  - une opinion ;
+  - une information ;
+  - une conversation ;
+  - une demande déjà clairement satisfaite ;
+  - un message ambigu ;
+  - une action dont personne ne semble responsable.
+  
+  Pour chaque tâche, retourne :
+  
+  {
+    "description": "action concrète à effectuer",
+    "chatId": "chat_id de la conversation",
+    "sender": "personne responsable de l'action si identifiable"
+  }
+  
+  Si aucune tâche fiable n'est détectée :
+  
+  "tasks": []
+  
+  IMPORTANT :
+  Ne crée jamais une tâche avec une description vide, null ou ambiguë.
+  
+  ════════════════════════════════════
+  FORMAT DE SORTIE
+  ════════════════════════════════════
+  
+  Réponds UNIQUEMENT avec un JSON valide.
+  
+  La structure obligatoire est :
+  
+  {
+    "summary": "texte du résumé avec des puces et des retours à la ligne ",
+    "tasks": [
+      {
+        "description": "action concrète",
+        "chatId": "identifiant de la conversation",
+        "sender": "personne responsable"
+      }
+    ]
+  }
+  
+  Le champ "summary" doit contenir le texte déjà formaté en puces, prêt à être envoyé sur Telegram ou WhatsApp.
+  
+  N'ajoute aucun texte avant ou après le JSON.
+  
+  IMPORTANT :
+  Le JSON doit toujours être syntaxiquement valide.
+  Les valeurs nulles ne doivent pas être utilisées pour "description".
+  `,
+    `Voici les messages reçus :
+  
+  ${formatted}
+  
+  Analyse-les en respectant strictement les règles ci-dessus.
+  
+  Renvoie uniquement le JSON demandé.`,
     { json: true }
   );
-
+  console.log('raw:',raw);
+  
   try {
     const parsed = JSON.parse(raw);
     return { summary: parsed.summary || 'Résumé vide.', tasks: parsed.tasks || [] };

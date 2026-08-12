@@ -158,10 +158,7 @@ function setupEvents(sockInstance, saveCreds, handlers) {
       });
 }
 
-async function handleIncomingMessage(
-    msg,
-    handlers
-) {
+async function handleIncomingMessage(msg, handlers) {
     if (!msg?.key?.remoteJid) {
         return;
     }
@@ -198,13 +195,41 @@ async function handleIncomingMessage(
     }
 
     const isGroup = remoteJid.endsWith('@g.us');
-    const sender = isSelfChat ? remoteJid : (msg.pushName || msg.key.participant || remoteJid);
+
+    // Identifiant technique de l'expéditeur
+    const sender = isSelfChat
+        ? remoteJid
+        : (msg.key.participant || remoteJid);
+
+    // Nom humain de l'expéditeur
+    const sender_name = isSelfChat
+        ? null
+        : (msg.pushName || null);
+
+    // Nom de la conversation
+    let chatName = null;
+
+    if (isGroup) {
+        try {
+            const metadata = await sock.groupMetadata(remoteJid);
+            chatName = metadata?.subject || null;
+        } catch (err) {
+            console.warn(
+                `⚠️ Impossible de récupérer le nom du groupe ${remoteJid}:`,
+                err.message
+            );
+        }
+    } else {
+        // Pour un DM, le pushName est généralement le nom du contact
+        chatName = msg.pushName || null;
+    }
 
     try {
         await saveMessage({
             chatId: remoteJid,
-            chatName: msg.pushName || 'Unknown',
+            chatName,
             sender,
+            sender_name,
             content,
             timestamp,
             isGroup,
@@ -229,6 +254,7 @@ async function handleIncomingMessage(
 
     if (isSelfChat) {
         const trimmed = content.trim();
+
         if (trimmed.startsWith('/')) {
             if (handlers?.onCommand) {
                 await handlers.onCommand(trimmed, remoteJid);
@@ -236,12 +262,15 @@ async function handleIncomingMessage(
         } else if (handlers?.onSelfChat) {
             await handlers.onSelfChat(trimmed, remoteJid);
         }
+
         return;
     }
 
     if (handlers?.onMessage) {
         await handlers.onMessage({
             sender,
+            sender_name,
+            chatName,
             content,
             isGroup,
             timestamp,
@@ -250,7 +279,7 @@ async function handleIncomingMessage(
     }
 
     console.log(
-        `✅ Message traité de ${sender}`
+        `✅ Message traité de ${sender_name || sender}`
     );
 }
 

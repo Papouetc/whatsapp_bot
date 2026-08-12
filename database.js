@@ -48,6 +48,11 @@ export async function initDB() {
     `);
 
     await pool.query(`
+        ALTER TABLE messages
+        ADD COLUMN IF NOT EXISTS sender_name TEXT
+      `)
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS tasks (
         id SERIAL PRIMARY KEY,
         description TEXT NOT NULL,
@@ -117,19 +122,44 @@ export async function getAllSettings() {
       
   export async function getPendingTasks() {
     const result = await pool.query(
-      'SELECT * FROM tasks WHERE done = FALSE ORDER BY detected_at ASC'
+      'SELECT * FROM tasks WHERE done = FALSE ORDER BY detected_at DESC'
     );
     return result.rows;
   }
-export async function saveTasks(tasks) {
-    if (!tasks || tasks.length === 0) return;
+  export async function saveTasks(tasks) {
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+        return;
+    }
+
     const now = Date.now();
+
     for (const t of tasks) {
+        if (
+            !t ||
+            typeof t.description !== 'string' ||
+            !t.description.trim()
+        ) {
+            console.warn('⚠️ Tâche ignorée : description invalide', t);
+            continue;
+        }
+
         await pool.query(
-          'INSERT INTO tasks (description, chat_id, sender, detected_at, done) VALUES ($1, $2, $3, $4, FALSE)',
-          [t.description, t.chatId || null, t.sender || null, now]
+            `INSERT INTO tasks (
+                description,
+                chat_id,
+                sender,
+                detected_at,
+                done
+            )
+            VALUES ($1, $2, $3, $4, FALSE)`,
+            [
+                t.description.trim(),
+                t.chatId || null,
+                t.sender || null,
+                now
+            ]
         );
-      }
+    }
 }
 export async function searchArchiveByKeyword(keyword, limit = 40) {
     const like = `%${keyword}%`;
@@ -144,11 +174,11 @@ export async function searchArchiveByKeyword(keyword, limit = 40) {
     return result.rows.reverse();
   }
 
-  export async function saveMessage({ chatId, chatName, sender, content, timestamp, isGroup, isStatus }) {
+  export async function saveMessage({ chatId, chatName, sender,sender_name, content, timestamp, isGroup, isStatus }) {
     await pool.query(
-      `INSERT INTO messages (chat_id, chat_name, sender, content, timestamp, is_group, is_status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [chatId, chatName || null, sender || null, content, timestamp, isGroup, isStatus || false]
+      `INSERT INTO messages (chat_id, chat_name, sender, sender_name ,content, timestamp, is_group, is_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7,$8)`,
+      [chatId, chatName || null, sender || null, sender_name, content, timestamp, isGroup, isStatus || false]
     );
   }
   
@@ -158,6 +188,7 @@ export async function searchArchiveByKeyword(keyword, limit = 40) {
        WHERE summarized = FALSE AND is_status = FALSE
        ORDER BY timestamp ASC`
     );
+    console.log('🔎 Premier message récupéré :', result.rows[0]);
     return result.rows;
   }
   

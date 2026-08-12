@@ -120,7 +120,7 @@ async function handleWhatsAppCommand(command, sender) {
       break;
     
     default:
-      await sendWhatsAppMessage(sender, '❓ Commande inconnue. Tape /help pour voir les commandes.');
+      await sendWhatsAppMessage(sender, ' Commande inconnue. Tape /help pour voir les commandes.');
   }
 }
 
@@ -138,7 +138,7 @@ async function handleResumeCommand(sender) {
     
     const { summary, tasks } = await summarizeMessages(messages);
     await sendWhatsAppMessage(sender, `📋 Résumé :\n${summary}`);
-    
+    await sendTelegramMessage(`📋 Résumé :\n${summary}`);
     if (tasks && tasks.length > 0) {
       await saveTasks(tasks);
     }
@@ -148,7 +148,8 @@ async function handleResumeCommand(sender) {
     
   } catch (err) {
     console.error('Erreur /resume :', err);
-    await sendWhatsAppMessage(sender, '❌ Erreur lors de la génération du résumé.');
+    await sendWhatsAppMessage(sender, ' Erreur lors de la génération du résumé.');
+    await sendTelegramMessage(' Erreur lors de la génération du résumé.');
   }
 }
 
@@ -176,23 +177,33 @@ async function handleSearchCommand(query, sender) {
 
 async function handleTasksCommand(sender) {
   try {
-    const tasks = await getPendingTasks();
-    
-    if (tasks.length === 0) {
-      await sendWhatsAppMessage(sender, '✅ Aucune tâche en attente.');
-      return;
-    }
-    
-    let response = '📝 Tâches en attente:\n\n';
-    tasks.forEach(t => {
-      response += `[${t.id}] ${t.description}\n`;
-    });
-    
-    await sendWhatsAppMessage(sender, response);
-    
+      const tasks = await getPendingTasks();
+
+      if (tasks.length === 0) {
+          await sendWhatsAppMessage(
+              sender,
+              '✅ Aucune tâche en attente.'
+          );
+          return;
+      }
+
+      let response = '📝 *Tâches en attente*\n\n';
+
+      tasks.forEach((task) => {
+          response += `[${task.id}] ${task.description}\n`;
+      });
+
+      response += '\n💡 /fait <id> → terminer une tâche';
+
+      await sendWhatsAppMessage(sender, response);
+
   } catch (err) {
-    console.error('Erreur /taches :', err);
-    await sendWhatsAppMessage(sender, '❌ Erreur lors de la récupération des tâches.');
+      console.error('❌ Erreur /taches :', err);
+
+      await sendWhatsAppMessage(
+          sender,
+          '❌ Impossible de récupérer les tâches.'
+      );
   }
 }
 
