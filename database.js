@@ -161,18 +161,26 @@ export async function getAllSettings() {
         );
     }
 }
-export async function searchArchiveByKeyword(keyword, limit = 40) {
-    const like = `%${keyword}%`;
-    const result = await pool.query(
-      `SELECT * FROM messages 
-       WHERE (sender LIKE $1 OR content LIKE $2) 
-       AND is_status = FALSE 
-       ORDER BY timestamp DESC 
-       LIMIT $3`,
-      [like, like, limit]
-    );
-    return result.rows.reverse();
-  }
+export async function searchArchiveByKeyword(keyword, limit = 50) {
+  const result = await pool.query(
+      `SELECT *
+       FROM messages
+       WHERE content ILIKE $1
+         AND content NOT LIKE '/search%'
+         AND content NOT LIKE '/resume%'
+         AND content NOT LIKE '/taches%'
+         AND content NOT LIKE '/fait%'
+         AND content NOT LIKE '/envoie%'
+         AND content NOT LIKE '/settings%'
+         AND content NOT LIKE '/set%'
+         AND content NOT LIKE '/help%'
+       ORDER BY timestamp DESC
+       LIMIT $2`,
+      [`%${keyword}%`, limit]
+  );
+
+  return result.rows;
+}
 
   export async function saveMessage({ chatId, chatName, sender,sender_name, content, timestamp, isGroup, isStatus }) {
     await pool.query(
@@ -223,3 +231,49 @@ export async function searchArchiveByKeyword(keyword, limit = 40) {
     return result.rows.reverse();
   }
 
+  export async function getConversationHistory(
+    chatId,
+    limit = 20,
+    excludeId = null
+  ) {
+    try {
+      let result;
+  
+      if (excludeId) {
+        result = await pool.query(
+          `
+          SELECT *
+          FROM messages
+          WHERE chat_id = $1
+            AND id != $2
+            AND COALESCE(is_status, false) = false
+          ORDER BY CAST(timestamp AS BIGINT) DESC
+          LIMIT $3
+          `,
+          [chatId, excludeId, limit]
+        );
+      } else {
+        result = await pool.query(
+          `
+          SELECT *
+          FROM messages
+          WHERE chat_id = $1
+            AND COALESCE(is_status, false) = false
+          ORDER BY CAST(timestamp AS BIGINT) DESC
+          LIMIT $2
+          `,
+          [chatId, limit]
+        );
+      }
+  
+      return result.rows.reverse();
+  
+    } catch (err) {
+      console.error(
+        '❌ Erreur récupération historique conversation:',
+        err
+      );
+  
+      return [];
+    }
+  }

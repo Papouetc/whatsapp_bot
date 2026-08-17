@@ -11,12 +11,13 @@ import {
   getPendingTasks,
   markTaskDone,
   saveTasks,
-  searchArchiveByKeyword
+  getConversationHistory
 } from './database.js';
 
 import {
   startWhatsApp,
-  sendWhatsAppMessage
+  sendWhatsAppMessage,
+  getOwnJid
 } from './whatsapp.js';
 
 import {
@@ -25,6 +26,7 @@ import {
 } from './telegram.js';
 
 import { scheduleDailySummary } from './scheduler.js';
+
 import {
   isPotentiallyUrgent
 } from './urgency.js';
@@ -32,7 +34,9 @@ import {
 import {
   confirmUrgency,
   generateDraftReply,
-  summarizeMessages
+  summarizeMessages,
+  callAI,
+  PERSONALITY
 } from './ai.js';
 
 import {
@@ -41,6 +45,9 @@ import {
 } from './drafts.js';
 
 import { handleChatMessage } from './chat.js';
+
+import { hybridSearch } from './search.js';
+import { json } from 'express';
 
 process.on('uncaughtException', (err) => {
   console.error(
@@ -80,7 +87,10 @@ export async function main() {
     printAvailableCommands();
 
   } catch (err) {
-    console.error('❌ Erreur fatale au démarrage :', err);
+    console.error(
+      '❌ Erreur fatale au démarrage :',
+      err
+    );
 
     await closeDB();
 
@@ -91,87 +101,164 @@ export async function main() {
 async function handleWhatsAppMessage(msgData) {
   const {
     sender,
+    sender_name,
     content,
     isGroup,
-    timestamp
+    isStatus,
+    isNewsletter
   } = msgData;
 
   console.log(
-    `📩 Message de ${sender}: ${content.substring(0, 50)}...`
+    `📩 Message de ${sender_name || sender}: ${content?.substring(0, 50)}...`
   );
 
   const urgencyDetectionOn =
     (await getSetting('urgency_detection')) === 'on';
-
+  console.log('urgency dtect:', urgencyDetectionOn);
+  console.log('isPotentiallyUrgent(content):', isPotentiallyUrgent(content));
+  
   if (
     urgencyDetectionOn &&
     isPotentiallyUrgent(content)
   ) {
     try {
+      console.log('content', content);
+      
       const {
         urgent,
         reason
-      } = await confirmUrgency({
-        content,
-        sender
-      });
-
+      } = await confirmUrgency({sender, content});
+      console.log('urgent',urgent);
+      
+      console.log('reason', reason);
+      
       if (urgent) {
-        await sendTelegramMessage(
-          `🚨 URGENT de ${sender}:\n${content}\n\nRaison: ${reason}`
+        const alertMessage =
+          `🚨 Vous avez un message URGENT de ${sender_name || sender}:\n` +
+          `${content}\n`;
+
+        await sendTelegramMessage(alertMessage);
+
+        await sendWhatsAppMessage(
+          getOwnJid(),
+          alertMessage
         );
 
         console.log(
-          '🚨 Alerte urgence envoyée à Telegram'
+          '🚨 Alerte urgence envoyée sur Telegram et WhatsApp'
         );
-      }
+      }else console.log("Pas urgent");
+      
 
     } catch (err) {
       console.error(
-        'Erreur détection urgence :',
+        '❌ Erreur détection urgence:',
         err
       );
     }
   }
 
-  if (!isGroup) {
-    const draftModeOn =
-      (await getSetting('draft_mode')) === 'on';
+  const draftModeOn =
+    (await getSetting('draft_mode')) === 'on';
 
-    if (draftModeOn) {
-      try {
-        const recentHistory =
-          await searchArchiveByKeyword('', 20);
+  if (!draftModeOn) {
+    return;
+  }
 
-        const draft =
-          await generateDraftReply({
-            sender,
-            recentHistory,
-            incomingContent: content
-          });
+  if (isGroup || isStatus || isNewsletter) {
+    return;
+  }
 
-        if (draft) {
-          await addDraft(sender, draft);
+  if (!content?.trim()) {
+    return;
+  }
 
-          await sendTelegramMessage(
-            `📝 Brouillon pour ${sender}:\n${draft}\n\nCommande: /envoie <id>`
-          );
-        }
+  if (content.trim().startsWith('/')) {
+    return;
+  }
 
-      } catch (err) {
-        console.error(
-          'Erreur génération brouillon :',
-          err
-        );
-      }
+  try {
+    console.log(
+      `📝 Génération draft pour ${sender_name || sender}`
+    );
+
+    const recentHistory =
+      await getConversationHistory(
+        sender,
+        20,
+        msgData.id
+      );
+
+    console.log(
+      `📚 Historique conversation : ${recentHistory.length} messages`
+    );
+
+    const draft =
+      await generateDraftReply({
+        sender,
+        recentHistory,
+        incomingContent: content
+      });
+
+    if (!draft?.trim()) {
+      console.log(
+        '⚠️ Aucun draft généré'
+      );
+
+      return;
     }
+
+    const draftId =
+      addDraft(
+        sender,
+        draft.trim(),
+        sender_name
+      );
+
+    if (!draftId) {
+      console.error(
+        '❌ Impossible de créer le draft'
+      );
+
+      return;
+    }
+
+    console.log(
+      `📝 Draft #${draftId} créé`
+    );
+
+    const displayName = sender_name || sender;
+    const draftMessage=  `📝 Brouillon #${draftId}\n\n` +
+    `Vous avez reçu un message de 👤 ${sender_name || sender}:\n\nMessage: ${content?.substring(0, 100)}...\n\n`+
+    `Voici une proposition de réponse: \n\n` +
+    `${draft.trim()}\n\n` +
+    `📤 Entrez : /envoie ${draftId} pour que je lui envoie directement la réponse`
+    let jid= getOwnJid();
+    console.log('jid: ',jid);
+    
+    await sendTelegramMessage( draftMessage
+    );
+    await sendWhatsAppMessage(jid,draftMessage
+     )
+    console.log(
+      `📲 Draft #${draftId} envoyé sur Telegram et whatsapp`
+    );
+
+  } catch (err) {
+    console.error(
+      '❌ Erreur génération brouillon:',
+      err
+    );
   }
 }
 
 function createReply(source, sender) {
   if (source === 'whatsapp') {
     return async (message) => {
-      await sendWhatsAppMessage(sender, message);
+      await sendWhatsAppMessage(
+        sender,
+        message
+      );
     };
   }
 
@@ -180,11 +267,19 @@ function createReply(source, sender) {
   };
 }
 
-async function handleCommand(commandText, source, sender) {
-  const args = commandText.trim().split(/\s+/);
-  const cmd = args[0]?.toLowerCase();
+async function handleCommand(
+  commandText,
+  source,
+  sender
+) {
+  const args =
+    commandText.trim().split(/\s+/);
 
-  const reply = createReply(source, sender);
+  const cmd =
+    args[0]?.toLowerCase();
+
+  const reply =
+    createReply(source, sender);
 
   switch (cmd) {
 
@@ -193,7 +288,8 @@ async function handleCommand(commandText, source, sender) {
       break;
 
     case '/search': {
-      const query = args.slice(1).join(' ');
+      const query =
+        args.slice(1).join(' ');
 
       if (!query) {
         await reply(
@@ -242,16 +338,9 @@ async function handleCommand(commandText, source, sender) {
         return;
       }
 
-      if (source !== 'whatsapp') {
-        await reply(
-          '⚠️ /envoie est actuellement disponible uniquement depuis WhatsApp.'
-        );
-        return;
-      }
-
       await handleDraftCommand(
         draftId,
-        sender
+        sender,
       );
 
       break;
@@ -263,7 +352,8 @@ async function handleCommand(commandText, source, sender) {
 
     case '/set': {
       const key = args[1];
-      const value = args.slice(2).join(' ');
+      const value =
+        args.slice(2).join(' ');
 
       if (!key || !value) {
         await reply(
@@ -344,7 +434,7 @@ async function handleResumeCommand(reply) {
 
     const ids =
       messages.map(
-        (message) => message.id
+        message => message.id
       );
 
     await markAsSummarized(ids);
@@ -365,40 +455,115 @@ async function handleSearchCommand(
   query,
   reply
 ) {
+  reply(`Je lance la recherche dans vos messages récent...`);
+  
   try {
-    const results =
-      await searchArchiveByKeyword(
-        query,
-        10
-      );
-
-    if (results.length === 0) {
+    if (!query?.trim()) {
       await reply(
-        `❌ Aucun résultat pour : ${query}`
+        '❌ Utilisation : /search <question>'
       );
       return;
     }
 
-    let response =
-      `🔍 Résultats pour "${query}" :\n\n`;
-
-    results.forEach(
-      (msg, index) => {
-        response +=
-          `${index + 1}. ${msg.sender}: ${msg.content.substring(0, 100)}\n`;
-      }
+    console.log(
+      `🔎 Recherche : ${query}`
     );
 
-    await reply(response);
+    const results =
+      await hybridSearch(query);
+
+    if (results.length === 0) {
+      await reply(
+        `🔎 Aucun message pertinent trouvé pour : "${query}"`
+      );
+      return;
+    }
+
+    const context =
+      results
+        .map((msg) => {
+          const date =
+            new Date(
+              Number(msg.timestamp)
+            ).toLocaleString('fr-FR');
+
+          const chatName =
+            msg.chat_name ||
+            msg.chat_id;
+
+          const senderName =
+            msg.sender_name ||
+            msg.sender;
+
+          return `[${date}] ${chatName} | ${senderName}: ${msg.content}`;
+        })
+        .join('\n');
+
+    console.log(
+      '📚 CONTEXTE ENVOYÉ À L’IA:\n',
+      context
+    );
+
+    const jid =
+      getOwnJid();
+
+    const answer =
+      await callAI(
+        `
+Tu es un assistant personnel qui recherche des informations dans l'historique WhatsApp.
+
+QUESTION DE L'UTILISATEUR :
+"${query}"
+
+MESSAGES RETROUVÉS :
+${context}
+
+Réponds directement à la question en utilisant UNIQUEMENT les informations présentes dans les messages.
+
+RÈGLES :
+- Ne fabrique aucune information.
+- Ne déduis pas une personne, une date ou une action qui n'est pas identifiable dans les messages.
+- Regroupe les messages qui parlent du même événement.
+- Si la réponse est identifiable, donne-la directement.
+- Si les messages permettent seulement une réponse partielle, indique précisément ce qui est certain.
+- Si les messages ne permettent pas de répondre, dis-le clairement.
+- Utilise les noms des contacts et des groupes lorsqu'ils sont disponibles.
+- Ne mentionne pas la recherche, la base de données, Groq ou ton fonctionnement.
+- Sois concis mais précis.
+
+IMPORTANT :
+
+Certains messages peuvent contenir des identifiants WhatsApp comme
+@198509831667939 ou 198509831667939@lid.
+
+Si l'identifiant correspond au compte de l'utilisateur, considère qu'il désigne l'utilisateur lui-même.
+
+Ne réponds pas simplement en répétant l'identifiant technique.
+
+Transforme les informations techniques en une réponse naturelle.
+
+Le compte utilisateur est : ${jid}
+        `,
+        context
+      );
+
+    console.log(
+      '🤖 Réponse IA:',
+      answer
+    );
+
+    await reply(
+      `🔎 Recherche : ${query}\n\n${answer}`
+    );
 
   } catch (err) {
     console.error(
-      'Erreur /search :',
+      '❌ Erreur /search :',
       err
     );
 
     await reply(
-      '❌ Erreur lors de la recherche.'
+      '❌ Une erreur est survenue pendant la recherche.'
     );
   }
 }
@@ -418,7 +583,7 @@ async function handleTasksCommand(reply) {
     let response =
       '📝 Tâches en attente\n\n';
 
-    tasks.forEach((task) => {
+    tasks.forEach(task => {
       response +=
         `[${task.id}] ${task.description}\n`;
     });
@@ -488,19 +653,53 @@ async function handleSettingsCommand(reply) {
     const settings =
       await getAllSettings();
 
-    let response =
-      '⚙️ Paramètres actuels\n\n';
+    let response = await callAI(`${PERSONALITY} Tu es un assistant personnelle sur whatsapp, tu as un certains nombre de fo
+      fonctinnalité. L'utilisateur te demande de faire le point sur tes settings. Présente les paramètres sous forme de sections courtes et clairement séparées.
 
-    for (
-      const [key, value]
-      of Object.entries(settings)
-    ) {
-      response +=
-        `${key}: ${value}\n`;
-    }
+      Utilise exactement cette structure :
+      
+      ⚙️ Mes paramètres
+      
+      📝 Brouillons
+      [statut + courte explication]
+      
+      🚨 Détection d'urgence
+      [statut + courte explication]
+      
+      📋 Résumé quotidien
+      [heure]
+      
+      🔎 Recherche
+      [période disponible]
+      
+      🧠 Mémoire
+      [nombre de messages]
+      
+      🤖 IA
+      [fournisseur]
+      
+      🌐 Langue
+      [langue]
+      
+      ⚙️ Pour modifier un paramètre :
+      /set <clé> <valeur>
+      
+      Règles :
+      - N'invente aucune information.
+      - Utilise uniquement les paramètres fournis.
+      - N'affiche pas les paramètres techniques internes.
+      - Traduis les valeurs techniques en langage naturel.
+      - Si un paramètre n'est pas présent, ne crée pas de section pour celui-ci.
+      - Garde les descriptions très courtes.
+      - Conserve les emojis et la structure indiquée.
+      - Réponds uniquement avec le message destiné à l'utilisateur.
+      
+      n'invente pas de settings et cache les paramètres techniques comme :
 
-    response +=
-      '\n/set <clé> <valeur>';
+      draft_mode_off_for: []
+      `,`Parametres: ${JSON.stringify(settings)}`,
+    {json: false})
+      
 
     await reply(response);
 
@@ -613,4 +812,3 @@ function printAvailableCommands() {
     '\nParle directement à ton propre chat WhatsApp pour discuter avec le bot.\n'
   );
 }
-

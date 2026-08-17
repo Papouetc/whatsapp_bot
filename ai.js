@@ -111,7 +111,7 @@ async function callGemini(systemPrompt, userPrompt, { json = false } = {}) {
 }
 
 
-async function callAI(systemPrompt, userPrompt, opts = {}) {
+export async function callAI(systemPrompt, userPrompt, opts = {}) {
   const priority = (await getSetting('ai_provider_priority')) || 'groq';
   const useGeminiFirst = priority === 'gemini';
 
@@ -148,6 +148,7 @@ export async function summarizeMessages(messages) {
   }
 
   const formatted = formatMessages(messages);
+  const today = new Date().toISOString().slice(0, 10);
 
   console.log('📤 TEXTE ENVOYÉ À GROQ :\n', formatted);
   const raw = await callAI(
@@ -384,22 +385,40 @@ export async function summarizeMessages(messages) {
   FORMAT DU RÉSUMÉ
   ════════════════════════════════════
   
-  Le champ "summary" doit contenir directement les puces finales.
+  Le champ "summary" doit contenir le texte final organisé en 4 sections fixes,
+  dans cet ordre, avec ces titres exacts (émojis inclus) :
   
-  Une puce par conversation pertinente.
+  🔴 Important
+  💬 Discussions
+  ⚡ À traiter
+  📌 Informations
+  ⭕ Nouvelles tache(s) detecté(es)
+  RÈGLES DE RÉPARTITION :
   
-  Exemple :
+  - 🔴 Important : demandes adressées à l'utilisateur qui attendent une action
+    ou une réponse de sa part, urgences, problèmes non résolus.
+  - 💬 Discussions : sujets suivis avec un contenu substantiel, même sans
+    action requise de l'utilisateur (mise à jour de projet, échange d'informations).
+  - ⚡ À traiter : tâches concrètes et engagements identifiés (voir sections
+    ENGAGEMENTS et EXTRACTION DES TÂCHES ci-dessus).
+  - 📌 Informations : décisions prises, rendez-vous, échéances, faits à retenir
+    qui ne rentrent pas dans les 3 catégories précédentes.
   
-  "- Groupe Projet : Cissé demande à AS d'envoyer le rapport avant vendredi ; AS confirme qu'il s'en chargera jeudi.
-  - Mohamed : demande à AS de vérifier les informations du dossier ; aucune réponse ou confirmation n'est encore donnée."
+  Une même conversation peut apparaître dans plusieurs sections si elle
+  contient plusieurs types d'éléments (ex : une demande dans 🔴 Important
+  ET une échéance associée dans 📌 Informations).
   
-  Chaque puce peut contenir plusieurs phrases si nécessaire.
+  Si une section n'a aucun élément, omets-la entièrement (n'écris pas le
+  titre suivi de rien).
+  
+  À l'intérieur de chaque section, une puce par élément, au format :
+  "- <Contact/Groupe> : <contenu factuel précis>"
   
   Priorise la précision plutôt que la formulation élégante.
   
   Ne répète pas inutilement le nom du contact dans chaque phrase.
   
-  Maximum environ 400 mots au total.
+  Maximum environ 500 mots au total.
   
   Si beaucoup de conversations existent, conserve en priorité celles contenant :
   - des demandes ;
@@ -476,8 +495,11 @@ export async function summarizeMessages(messages) {
   IMPORTANT :
   Le JSON doit toujours être syntaxiquement valide.
   Les valeurs nulles ne doivent pas être utilisées pour "description".
+  Tout doit etre grammaticalemment correct.
   `,
     `Voici les messages reçus :
+  
+  Date du jour : ${today}
   
   ${formatted}
   
@@ -490,7 +512,10 @@ export async function summarizeMessages(messages) {
   
   try {
     const parsed = JSON.parse(raw);
-    return { summary: parsed.summary || 'Résumé vide.', tasks: parsed.tasks || [] };
+    return {
+      summary: parsed.summary || 'Résumé vide.',
+      tasks: parsed.tasks || []
+    };
   } catch {
     return { summary: raw || 'Réponse vide.', tasks: [] };
   }
@@ -511,7 +536,7 @@ export async function answerSearchQuery(question, messages) {
 
 export async function confirmUrgency(message) {
   const raw = await callAI(
-    `Tu évalues si UN SEUL message WhatsApp est réellement urgent (nécessite une action ou une réponse immédiate) ou si le mot "urgent"/similaire est juste utilisé au sens large sans vraie urgence. Sois strict : la plupart des messages qui contiennent ces mots ne sont PAS réellement urgents.\nRéponds UNIQUEMENT en JSON valide de la forme : {"urgent": true|false, "reason": "..."}`,
+    `Tu évalues si UN SEUL message WhatsApp est réellement urgent (nécessite une action ou une réponse immédiate) ou si le mot "urgent"/similaire est juste utilisé au sens large sans vraie urgence. Sois strict \nRéponds UNIQUEMENT en JSON valide de la forme : {"urgent": true|false, "reason": "..."}`,
     `Message de ${message.sender} : "${message.content}"\n\nCe message est-il réellement urgent ?`,
     { json: true }
   );

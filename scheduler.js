@@ -1,6 +1,6 @@
 // scheduler.js
 import cron from 'node-cron';
-import { getUnsummarizedMessages, markAsSummarized, getSetting } from './database.js';
+import { getUnsummarizedMessages, markAsSummarized, getSetting, saveTasks } from './database.js';
 import { summarizeMessages } from './ai.js';
 import { sendTelegramMessage } from './telegram.js';
 
@@ -19,10 +19,14 @@ export function scheduleDailySummary() {
         return;
       }
       
-      const summary = await summarizeMessages(messages);
+      const { summary, tasks } = await summarizeMessages(messages);
       
       await sendTelegramMessage(`📋 Résumé du jour:\n\n${summary}`);
       
+      if (tasks && tasks.length > 0) {
+        await saveTasks(tasks);
+      }
+
       const ids = messages.map(m => m.id);
       await markAsSummarized(ids);
       

@@ -18,6 +18,10 @@ let pairingRequested = false;
 const sentByBot = new Set();
 const SENT_IDS_MAX = 200;
 
+// File d'attente pour sérialiser les envois (évite les conflits de session Signal
+// quand plusieurs messages partent rapidement vers le même destinataire, notamment le self-chat)
+let sendQueue = Promise.resolve();
+
 function rememberSentId(id) {
     sentByBot.add(id);
     if (sentByBot.size > SENT_IDS_MAX) {
@@ -168,7 +172,8 @@ async function handleIncomingMessage(msg, handlers) {
     }
 
     const remoteJid = msg.key.remoteJid;
-    const isStatus = remoteJid === 'status@broadcast';
+    const isStatus = (remoteJid === 'status@broadcast') ||(remoteJid === 'status@newsletter') ;
+    const isNewsletter = remoteJid.endsWith('@newsletter');
     const timestamp = Number(msg.messageTimestamp) * 1000;
 
     let content = '';
@@ -198,7 +203,7 @@ async function handleIncomingMessage(msg, handlers) {
 
     // Identifiant technique de l'expéditeur
     const sender = isSelfChat
-        ? remoteJid
+        ? (sock?.user?.id || remoteJid)
         : (msg.key.participant || remoteJid);
 
     // Nom humain de l'expéditeur
@@ -244,7 +249,7 @@ async function handleIncomingMessage(msg, handlers) {
         return;
     }
 
-    if (isStatus) {
+    if (isStatus ) {
         console.log(
             '📸 Statut archivé'
         );
@@ -252,6 +257,14 @@ async function handleIncomingMessage(msg, handlers) {
         return;
     }
 
+    if (isNewsletter ) {
+        console.log(
+            '📸 Message chaine ignoré'
+        );
+
+        return;
+    }
+    
     if (isSelfChat) {
         const trimmed = content.trim();
 
@@ -387,34 +400,59 @@ export async function sendWhatsAppMessage(
         );
     }
 
-    try {
-        const result = await sock.sendMessage(
-            chatId,
-            { text }
-        );
+    // On chaîne cet envoi à la suite du précédent, pour ne jamais avoir
+    // deux sendMessage() en vol simultanément (source probable de la perte
+    // silencieuse de messages en self-chat).
+    const task = sendQueue.then(async () => {
+        try {
+            const result = await sock.sendMessage(
+                chatId,
+                { text }
+            );
 
-        if (result?.key?.id) {
-            rememberSentId(result.key.id);
+            if (result?.key?.id) {
+                rememberSentId(result.key.id);
+            }
+
+            console.log(
+                `✉️ Message envoyé à ${chatId}`
+            );
+
+        } catch (err) {
+            console.error(
+                '❌ Erreur envoi message:',
+                err
+            );
+
+            throw err;
         }
+    });
 
-        console.log(
-            `✉️ Message envoyé à ${chatId}`
-        );
+    // On avale l'erreur ici pour ne pas casser la chaîne de la queue pour
+    // les envois suivants, mais on la repropage à l'appelant.
+    sendQueue = task.catch(() => {});
 
-    } catch (err) {
-        console.error(
-            '❌ Erreur envoi message:',
-            err
-        );
-
-        throw err;
-    }
+    return task;
 }
+function stripDeviceSuffix(jid) {
+
+    if (!jid) return jid;
+
+    const [userPart, domain] = jid.split('@');
+
+    const bareUser = userPart.split(':')[0];
+
+    return `${bareUser}@${domain}`;
+
+}
+
 
 export function getOwnJid() {
     if (!sock?.user) {
         return null;
     }
 
-    return sock.user.id;
+    const jid = sock.user.lid || sock.user.id;
+
+    return stripDeviceSuffix(jid);
 }
