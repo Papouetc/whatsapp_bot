@@ -1,4 +1,4 @@
-import { sendWhatsAppMessage } from './whatsapp.js';
+import { sendWhatsAppMessage,sendWhatsAppMessageReaction } from './whatsapp.js';
 import { chatReply } from './ai.js';
 
 const conversationHistory = [];

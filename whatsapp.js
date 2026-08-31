@@ -197,6 +197,25 @@ async function handleIncomingMessage(msg, handlers) {
     }
 
     if (fromMe && !isSelfChat) {
+        try {
+            await saveMessage({
+                chatId: remoteJid,
+                chatName,
+                sender,
+                sender_name,
+                content,
+                timestamp,
+                isGroup,
+                isStatus
+            });
+        } catch (err) {
+            console.error(
+                '❌ Erreur archivage message:',
+                err
+            );
+    
+            return;
+        }
         return;
     }
 
@@ -268,7 +287,7 @@ async function handleIncomingMessage(msg, handlers) {
     
     if (isSelfChat) {
         const trimmed = content.trim();
-
+        sendWhatsAppMessageReaction(sender, "😎", msg);
         if (trimmed.startsWith('/')) {
             if (handlers?.onCommand) {
                 await handlers.onCommand(trimmed, remoteJid);
@@ -422,6 +441,53 @@ export async function sendWhatsAppMessage(
         } catch (err) {
             console.error(
                 '❌ Erreur envoi message:',
+                err
+            );
+
+            throw err;
+        }
+    });
+
+    // On avale l'erreur ici pour ne pas casser la chaîne de la queue pour
+    // les envois suivants, mais on la repropage à l'appelant.
+    sendQueue = task.catch(() => {});
+
+    return task;
+}
+
+export async function sendWhatsAppMessageReaction(
+    chatId,
+    text,
+    incomingMessage
+) {
+    if (!sock) {
+        throw new Error(
+            "WhatsApp n'est pas initialisé"
+        );
+    }
+
+    const task = sendQueue.then(async () => {
+        try {
+            const result = await sock.sendMessage(
+                chatId,
+                {
+                    react: {
+                      text: text, 
+                      key: incomingMessage.key
+                    }
+        });
+
+            if (result?.key?.id) {
+                rememberSentId(result.key.id);
+            }
+
+            console.log(
+                `reaction envoyée à ${chatId}`
+            );
+
+        } catch (err) {
+            console.error(
+                '❌ Erreur envoi reaction:',
                 err
             );
 
