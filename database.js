@@ -185,7 +185,7 @@ export async function searchArchiveByKeyword(keyword, limit = 50) {
   export async function saveMessage({ chatId, chatName, sender,sender_name, content, timestamp, isGroup, isStatus,is_from_me }) {
     await pool.query(
       `INSERT INTO messages (chat_id, chat_name, sender, sender_name ,content, timestamp, is_group, is_status, is_from_me)
-       VALUES ($1, $2, $3, $4, $5, $6, $7,$8)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9)`,
       [chatId, chatName || null, sender || null, sender_name, content, timestamp, isGroup, isStatus || false,is_from_me || false]
     );
   }
