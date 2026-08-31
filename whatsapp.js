@@ -287,7 +287,7 @@ async function handleIncomingMessage(msg, handlers) {
     
     if (isSelfChat) {
         const trimmed = content.trim();
-        sendWhatsAppMessageReaction(sender, "😎", msg);
+        sendWhatsAppMessageReaction(remoteJid, "😎", msg);
         if (trimmed.startsWith('/')) {
             if (handlers?.onCommand) {
                 await handlers.onCommand(trimmed, remoteJid);
