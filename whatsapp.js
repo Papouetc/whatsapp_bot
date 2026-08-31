@@ -206,7 +206,8 @@ async function handleIncomingMessage(msg, handlers) {
                 content,
                 timestamp,
                 isGroup,
-                isStatus
+                isStatus,
+                fromMe
             });
         } catch (err) {
             console.error(
@@ -258,7 +259,8 @@ async function handleIncomingMessage(msg, handlers) {
             content,
             timestamp,
             isGroup,
-            isStatus
+            isStatus,
+            fromMe
         });
     } catch (err) {
         console.error(
