@@ -73,6 +73,7 @@ function setupEvents(sockInstance, saveCreds, handlers) {
 
                 reconnecting = false;
                 await saveCreds();
+                await sockInstance.sendPresenceUpdate('unavailable');
                 return;
             }
 
