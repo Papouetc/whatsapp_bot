@@ -11,17 +11,17 @@ export const pool = new Pool({
 });
 
 export const DEFAULT_SETTINGS = {
-    draft_mode: 'on',
-    draft_mode_off_for: '[]', // JSON : liste de chatId exclus du mode brouillon
-    urgency_detection: 'on',
-    summary_hour: String(process.env.SUMMARY_HOUR || '22'),
-    search_window_days: '30',
-    chat_memory_size: '20',
-    ai_provider_priority: 'groq',
-    urgence_mot_cle: 'urgent,urgence,vite,immédiat,immédiatement,rapidement,dépêche,dépêche-toi,critique,emergency,asap,important,maintenant,tout de suite,au secours,help,sos,problème grave,ça urge'
-  };
+  draft_mode: 'on',
+  draft_mode_off_for: '[]', // JSON : liste de chatId exclus du mode brouillon
+  urgency_detection: 'on',
+  summary_hour: String(process.env.SUMMARY_HOUR || '22'),
+  search_window_days: '30',
+  chat_memory_size: '20',
+  ai_provider_priority: 'groq',
+  urgence_mot_cle: 'urgent,urgence,vite,immédiat,immédiatement,rapidement,dépêche,dépêche-toi,critique,emergency,asap,important,maintenant,tout de suite,au secours,help,sos,problème grave,ça urge'
+};
 
-  // ===== Initialisation =====
+// ===== Initialisation =====
 
 export async function initDB() {
   try {
@@ -50,6 +50,11 @@ export async function initDB() {
     await pool.query(`
         ALTER TABLE messages
         ADD COLUMN IF NOT EXISTS sender_name TEXT
+      `)
+
+    await pool.query(`
+        ALTER TABLE messages
+        ADD COLUMN IF NOT EXISTS is_from_me BOOLEAN NOT NULL DEFAULT FALSE
       `)
 
     await pool.query(`
@@ -86,65 +91,65 @@ export async function closeDB() {
   console.log('✅ Connexion base de données fermée');
 }
 export async function getSetting(key) {
-    const result = await pool.query(
-      'SELECT value FROM settings WHERE key = $1',
-      [key]  
-    );
-    if (result.rows.length === 0) {
-        return null;
-      }
-      return result.rows[0].value;
+  const result = await pool.query(
+    'SELECT value FROM settings WHERE key = $1',
+    [key]
+  );
+  if (result.rows.length === 0) {
+    return null;
   }
+  return result.rows[0].value;
+}
 export async function setSetting(key, value) {
-    const result = await pool.query(
-        'INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2',
-        [key, String(value)]  
-      );
+  const result = await pool.query(
+    'INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2',
+    [key, String(value)]
+  );
 }
 export async function getAllSettings() {
-    const result = await pool.query('SELECT key, value FROM settings');
-    const obj = { ...DEFAULT_SETTINGS };
-    for (const r of result.rows) obj[r.key] = r.value;
-    return obj;
+  const result = await pool.query('SELECT key, value FROM settings');
+  const obj = { ...DEFAULT_SETTINGS };
+  for (const r of result.rows) obj[r.key] = r.value;
+  return obj;
+}
+export async function markTaskDone(id) {
+  const result = await pool.query(
+    'SELECT id FROM tasks WHERE id =$1 AND done = $2',
+    [id, false]
+  );
+  if (result.rows.length == 0) {
+    return false
   }
-  export async function markTaskDone(id ) {
-    const result = await pool.query(
-        'SELECT id FROM tasks WHERE id =$1 AND done = $2',
-        [id, false]  
-      );
-      if (result.rows.length == 0) {
-        return false
-      }
-      await pool.query(`UPDATE tasks SET done = $1 WHERE id = $2`, [true,id]);
-      return true;
-    
+  await pool.query(`UPDATE tasks SET done = $1 WHERE id = $2`, [true, id]);
+  return true;
+
+}
+
+export async function getPendingTasks() {
+  const result = await pool.query(
+    'SELECT * FROM tasks WHERE done = FALSE ORDER BY detected_at DESC'
+  );
+  return result.rows;
+}
+export async function saveTasks(tasks) {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return;
   }
-      
-  export async function getPendingTasks() {
-    const result = await pool.query(
-      'SELECT * FROM tasks WHERE done = FALSE ORDER BY detected_at DESC'
-    );
-    return result.rows;
-  }
-  export async function saveTasks(tasks) {
-    if (!Array.isArray(tasks) || tasks.length === 0) {
-        return;
+
+  const now = Date.now();
+
+  for (const t of tasks) {
+    if (
+      !t ||
+      typeof t.description !== 'string' ||
+      !t.description.trim()
+    ) {
+      console.warn('⚠️ Tâche ignorée : description invalide', t);
+      continue;
     }
 
-    const now = Date.now();
-
-    for (const t of tasks) {
-        if (
-            !t ||
-            typeof t.description !== 'string' ||
-            !t.description.trim()
-        ) {
-            console.warn('⚠️ Tâche ignorée : description invalide', t);
-            continue;
-        }
-
-        await pool.query(
-            `INSERT INTO tasks (
+    await pool.query(
+      `INSERT INTO tasks (
                 description,
                 chat_id,
                 sender,
@@ -152,18 +157,18 @@ export async function getAllSettings() {
                 done
             )
             VALUES ($1, $2, $3, $4, FALSE)`,
-            [
-                t.description.trim(),
-                t.chatId || null,
-                t.sender || null,
-                now
-            ]
-        );
-    }
+      [
+        t.description.trim(),
+        t.chatId || null,
+        t.sender || null,
+        now
+      ]
+    );
+  }
 }
 export async function searchArchiveByKeyword(keyword, limit = 50) {
   const result = await pool.query(
-      `SELECT *
+    `SELECT *
        FROM messages
        WHERE content ILIKE $1
          AND content NOT LIKE '/search%'
@@ -176,72 +181,72 @@ export async function searchArchiveByKeyword(keyword, limit = 50) {
          AND content NOT LIKE '/help%'
        ORDER BY timestamp DESC
        LIMIT $2`,
-      [`%${keyword}%`, limit]
+    [`%${keyword}%`, limit]
   );
 
   return result.rows;
 }
 
-  export async function saveMessage({ chatId, chatName, sender,sender_name, content, timestamp, isGroup, isStatus,is_from_me }) {
-    await pool.query(
-      `INSERT INTO messages (chat_id, chat_name, sender, sender_name ,content, timestamp, is_group, is_status, is_from_me)
+export async function saveMessage({ chatId, chatName, sender, sender_name, content, timestamp, isGroup, isStatus, is_from_me }) {
+  await pool.query(
+    `INSERT INTO messages (chat_id, chat_name, sender, sender_name ,content, timestamp, is_group, is_status, is_from_me)
        VALUES ($1, $2, $3, $4, $5, $6, $7,$8,$9)`,
-      [chatId, chatName || null, sender || null, sender_name, content, timestamp, isGroup, isStatus || false,is_from_me || false]
-    );
-  }
-  
-  export async function getUnsummarizedMessages() {
-    const result = await pool.query(
-      `SELECT * FROM messages 
+    [chatId, chatName || null, sender || null, sender_name, content, timestamp, isGroup, isStatus || false, is_from_me || false]
+  );
+}
+
+export async function getUnsummarizedMessages() {
+  const result = await pool.query(
+    `SELECT * FROM messages 
        WHERE summarized = FALSE AND is_status = FALSE
        ORDER BY timestamp ASC`
-    );
-    console.log('🔎 Premier message récupéré :', result.rows[0]);
-    return result.rows;
-  }
-  
-  export async function markAsSummarized(ids) {
-    if (!ids || ids.length === 0) return;
-    await pool.query(
-      `UPDATE messages SET summarized = TRUE WHERE id = ANY($1)`,
-      [ids]
-    );
-  }
-  
-  export async function getRecentMessagesForSearch(days, maxMessages) {
-    const since = Date.now() - (days * 24 * 60 * 60 * 1000);
-    const result = await pool.query(
-      `SELECT * FROM messages
+  );
+  console.log('🔎 Premier message récupéré :', result.rows[0]);
+  return result.rows;
+}
+
+export async function markAsSummarized(ids) {
+  if (!ids || ids.length === 0) return;
+  await pool.query(
+    `UPDATE messages SET summarized = TRUE WHERE id = ANY($1)`,
+    [ids]
+  );
+}
+
+export async function getRecentMessagesForSearch(days, maxMessages) {
+  const since = Date.now() - (days * 24 * 60 * 60 * 1000);
+  const result = await pool.query(
+    `SELECT * FROM messages
        WHERE timestamp > $1 AND is_status = FALSE
        ORDER BY timestamp DESC
        LIMIT $2`,
-      [since, maxMessages]
-    );
-    return result.rows;
-  }
-  
-  export async function getRecentMessagesForChat(chatId, limit = 20) {
-    const result = await pool.query(
-      `SELECT * FROM messages
+    [since, maxMessages]
+  );
+  return result.rows;
+}
+
+export async function getRecentMessagesForChat(chatId, limit = 20) {
+  const result = await pool.query(
+    `SELECT * FROM messages
        WHERE chat_id = $1 AND is_status = FALSE
        ORDER BY timestamp DESC
        LIMIT $2`,
-      [chatId, limit]
-    );
-    return result.rows.reverse();
-  }
+    [chatId, limit]
+  );
+  return result.rows.reverse();
+}
 
-  export async function getConversationHistory(
-    chatId,
-    limit = 20,
-    excludeId = null
-  ) {
-    try {
-      let result;
-  
-      if (excludeId) {
-        result = await pool.query(
-          `
+export async function getConversationHistory(
+  chatId,
+  limit = 20,
+  excludeId = null
+) {
+  try {
+    let result;
+
+    if (excludeId) {
+      result = await pool.query(
+        `
           SELECT *
           FROM messages
           WHERE chat_id = $1
@@ -250,11 +255,11 @@ export async function searchArchiveByKeyword(keyword, limit = 50) {
           ORDER BY CAST(timestamp AS BIGINT) DESC
           LIMIT $3
           `,
-          [chatId, excludeId, limit]
-        );
-      } else {
-        result = await pool.query(
-          `
+        [chatId, excludeId, limit]
+      );
+    } else {
+      result = await pool.query(
+        `
           SELECT *
           FROM messages
           WHERE chat_id = $1
@@ -262,18 +267,18 @@ export async function searchArchiveByKeyword(keyword, limit = 50) {
           ORDER BY CAST(timestamp AS BIGINT) DESC
           LIMIT $2
           `,
-          [chatId, limit]
-        );
-      }
-  
-      return result.rows.reverse();
-  
-    } catch (err) {
-      console.error(
-        '❌ Erreur récupération historique conversation:',
-        err
+        [chatId, limit]
       );
-  
-      return [];
     }
+
+    return result.rows.reverse();
+
+  } catch (err) {
+    console.error(
+      '❌ Erreur récupération historique conversation:',
+      err
+    );
+
+    return [];
   }
+}

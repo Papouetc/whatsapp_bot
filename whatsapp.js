@@ -66,8 +66,7 @@ function setupEvents(sockInstance, saveCreds, handlers) {
                 );
 
                 console.log(
-                    `👤 Compte : ${
-                        sockInstance.user?.id || 'inconnu'
+                    `👤 Compte : ${sockInstance.user?.id || 'inconnu'
                     }`
                 );
 
@@ -154,13 +153,13 @@ function setupEvents(sockInstance, saveCreds, handlers) {
 
     sockInstance.ev.on('messages.upsert', async ({ messages }) => {
         for (const msg of messages) {
-          try {
-            await handleIncomingMessage(msg, handlers);
-          } catch (err) {
-            console.error('❌ Erreur traitement message:', err);
-          }
+            try {
+                await handleIncomingMessage(msg, handlers);
+            } catch (err) {
+                console.error('❌ Erreur traitement message:', err);
+            }
         }
-      });
+    });
 }
 
 async function handleIncomingMessage(msg, handlers) {
@@ -173,7 +172,7 @@ async function handleIncomingMessage(msg, handlers) {
     }
 
     const remoteJid = msg.key.remoteJid;
-    const isStatus = (remoteJid === 'status@broadcast') ||(remoteJid === 'status@newsletter') ;
+    const isStatus = (remoteJid === 'status@broadcast') || (remoteJid === 'status@newsletter');
     const isNewsletter = remoteJid.endsWith('@newsletter');
     const timestamp = Number(msg.messageTimestamp) * 1000;
 
@@ -196,7 +195,7 @@ async function handleIncomingMessage(msg, handlers) {
         return;
     }
 
-  
+
 
     const isGroup = remoteJid.endsWith('@g.us');
 
@@ -238,7 +237,7 @@ async function handleIncomingMessage(msg, handlers) {
             timestamp,
             isGroup,
             isStatus,
-            fromMe
+            is_from_me: fromMe === true
         });
     } catch (err) {
         console.error(
@@ -249,7 +248,7 @@ async function handleIncomingMessage(msg, handlers) {
         return;
     }
 
-    if (isStatus ) {
+    if (isStatus) {
         console.log(
             '📸 Statut archivé'
         );
@@ -257,7 +256,7 @@ async function handleIncomingMessage(msg, handlers) {
         return;
     }
 
-    if (isNewsletter ) {
+    if (isNewsletter) {
         console.log(
             '📸 Message chaine ignoré'
         );
@@ -265,7 +264,7 @@ async function handleIncomingMessage(msg, handlers) {
         return;
     }
     if (fromMe && !isSelfChat) {
-        
+
         return;
     }
     if (isSelfChat) {
@@ -309,8 +308,7 @@ export async function startWhatsApp(handlers) {
             await createAuthState();
 
         console.log(
-            `🔐 Session enregistrée : ${
-                state.creds.registered
+            `🔐 Session enregistrée : ${state.creds.registered
             }`
         );
 
@@ -433,7 +431,7 @@ export async function sendWhatsAppMessage(
 
     // On avale l'erreur ici pour ne pas casser la chaîne de la queue pour
     // les envois suivants, mais on la repropage à l'appelant.
-    sendQueue = task.catch(() => {});
+    sendQueue = task.catch(() => { });
 
     return task;
 }
@@ -455,10 +453,10 @@ export async function sendWhatsAppMessageReaction(
                 chatId,
                 {
                     react: {
-                      text: text, 
-                      key: incomingMessage.key
+                        text: text,
+                        key: incomingMessage.key
                     }
-        });
+                });
 
             if (result?.key?.id) {
                 rememberSentId(result.key.id);
@@ -480,7 +478,7 @@ export async function sendWhatsAppMessageReaction(
 
     // On avale l'erreur ici pour ne pas casser la chaîne de la queue pour
     // les envois suivants, mais on la repropage à l'appelant.
-    sendQueue = task.catch(() => {});
+    sendQueue = task.catch(() => { });
 
     return task;
 }
