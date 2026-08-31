@@ -196,29 +196,7 @@ async function handleIncomingMessage(msg, handlers) {
         return;
     }
 
-    if (fromMe && !isSelfChat) {
-        try {
-            await saveMessage({
-                chatId: remoteJid,
-                chatName,
-                sender,
-                sender_name,
-                content,
-                timestamp,
-                isGroup,
-                isStatus,
-                fromMe
-            });
-        } catch (err) {
-            console.error(
-                '❌ Erreur archivage message:',
-                err
-            );
-    
-            return;
-        }
-        return;
-    }
+  
 
     const isGroup = remoteJid.endsWith('@g.us');
 
@@ -286,7 +264,10 @@ async function handleIncomingMessage(msg, handlers) {
 
         return;
     }
-    
+    if (fromMe && !isSelfChat) {
+        
+        return;
+    }
     if (isSelfChat) {
         const trimmed = content.trim();
         await sendWhatsAppMessageReaction(remoteJid, "😎", msg);
