@@ -280,7 +280,7 @@ console.log('userPrompt:', userPrompt); */
     console.log(`🟢 Réponse générée par ${primaryName}`);
     return result;
   } catch (err) {
-    if ((err.status === 429 || err.status=== 413) && secondaryAvailable) {
+    if ((err.status === 429 || err.status=== 413 || err.status== 503) && secondaryAvailable) {
       console.warn(`⚠️  ${primaryName} en rate-limit (429), bascule sur ${secondaryName}...`);
       const result = await secondary(systemPrompt, userPrompt, opts);
       console.log(`🔵 Réponse générée par ${secondaryName} (fallback)`);
