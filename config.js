@@ -7,8 +7,8 @@ export function validateEnvironment() {
 
     for (const name of [
         'DATABASE_URL',
-        'TELEGRAM_BOT_TOKEN',
-        'WA_AUTH_ENCRYPTION_KEY'
+        'WA_AUTH_ENCRYPTION_KEY',
+        'WEB_SESSION_SECRET'
     ]) {
         if (!process.env[name]?.trim()) {
             missing.push(name);

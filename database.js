@@ -149,6 +149,27 @@ export async function initDB() {
       ADD COLUMN IF NOT EXISTS whatsapp_jid TEXT
     `);
 
+    await pool.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS email TEXT
+    `);
+
+    await pool.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS password_hash TEXT
+    `);
+
+    await pool.query(`
+      ALTER TABLE users
+      ALTER COLUMN telegram_user_id DROP NOT NULL
+    `);
+
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS users_email_key
+      ON users (LOWER(email))
+      WHERE email IS NOT NULL
+    `);
+
     // Créer les tables si elles n'existent pas
     await pool.query(`
       CREATE TABLE IF NOT EXISTS settings (
@@ -317,6 +338,38 @@ export async function getOrCreateUser(
   );
 
   return result.rows[0];
+}
+
+export async function createWebUser(email, passwordHash) {
+  const result = await pool.query(
+    `INSERT INTO users (email, password_hash)
+     VALUES ($1, $2)
+     RETURNING id, email`,
+    [email, passwordHash]
+  );
+
+  return {
+    ...result.rows[0],
+    userId: `web:${result.rows[0].id}`
+  };
+}
+
+export async function getWebUserByEmail(email) {
+  const result = await pool.query(
+    `SELECT id, email, password_hash, whatsapp_jid
+     FROM users
+     WHERE LOWER(email) = LOWER($1)`,
+    [email]
+  );
+
+  if (!result.rows[0]) {
+    return null;
+  }
+
+  return {
+    ...result.rows[0],
+    userId: `web:${result.rows[0].id}`
+  };
 }
 
 export async function setUserWhatsAppJid(userId, whatsappJid) {

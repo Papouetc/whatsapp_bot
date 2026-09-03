@@ -9,11 +9,7 @@ import {
 dotenv.config();
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
-if (!token) {
-  throw new Error('TELEGRAM_BOT_TOKEN manquant dans .env');
-}
-
-const bot = new TelegramBot(token, { polling: true });
+const bot = token ? new TelegramBot(token, { polling: true }) : null;
 const chatId = process.env.TELEGRAM_CHAT_ID;
 
 let messageHandler = null;
@@ -25,6 +21,11 @@ function isAuthorizedChat(message) {
 
 export function startTelegramListener(handler) {
   messageHandler = handler;
+
+  if (!bot) {
+    console.log('📱 Telegram désactivé');
+    return;
+  }
 
   bot.on('message', async (msg) => {
     if (!isAuthorizedChat(msg)) {
@@ -54,7 +55,7 @@ export function startTelegramListener(handler) {
 
 export async function sendTelegramMessage(text, targetChatId = chatId) {
   try {
-    if (!targetChatId) {
+    if (!bot || !targetChatId) {
       console.warn('⚠️ TELEGRAM_CHAT_ID manquant, message non envoyé');
       return;
     }

@@ -844,3 +844,11 @@ function printAvailableCommands() {
     '\nParle directement à ton propre chat WhatsApp pour discuter avec le bot.\n'
   );
 }
+
+export function getWhatsAppHandlers() {
+  return {
+    onMessage: handleWhatsAppMessage,
+    onCommand: handleWhatsAppCommand,
+    onSelfChat: handleChatMessage
+  };
+}

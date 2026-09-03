@@ -1,11 +1,231 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>Hakili | Connexion</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --ink: #17212b;
+            --muted: #65727e;
+            --paper: #f3f0e8;
+            --panel: #fffdf8;
+            --accent: #147d75;
+            --accent-dark: #0c5e59;
+            --line: #d9d6cc;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: radial-gradient(circle at 12% 8%, #dcece4 0, transparent 32%), linear-gradient(135deg, #f3f0e8, #e7eee9);
+            color: var(--ink);
+            font-family: Georgia, 'Times New Roman', serif;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+        }
+
+        main {
+            width: min(100%, 440px);
+            background: rgba(255, 253, 248, .94);
+            border: 1px solid var(--line);
+            padding: 36px;
+            box-shadow: 0 20px 60px rgba(23, 33, 43, .12);
+        }
+
+        .mark {
+            width: 48px;
+            height: 48px;
+            display: grid;
+            place-items: center;
+            background: var(--accent);
+            color: white;
+            font: 700 23px Georgia, serif;
+            border-radius: 50%;
+        }
+
+        h1 {
+            margin: 24px 0 8px;
+            font-size: 40px;
+            letter-spacing: 0;
+        }
+
+        p {
+            color: var(--muted);
+            line-height: 1.5;
+            margin: 0 0 24px;
+        }
+
+        label {
+            display: block;
+            color: var(--muted);
+            font: 600 13px Arial, sans-serif;
+            margin: 16px 0 7px;
+        }
+
+        input {
+            width: 100%;
+            border: 1px solid var(--line);
+            padding: 13px 14px;
+            font: 16px Arial, sans-serif;
+            background: white;
+            color: var(--ink);
+        }
+
+        input:focus {
+            outline: 2px solid rgba(20, 125, 117, .25);
+            border-color: var(--accent);
+        }
+
+        button {
+            width: 100%;
+            border: 0;
+            padding: 14px;
+            margin-top: 22px;
+            background: var(--accent);
+            color: white;
+            cursor: pointer;
+            font: 700 15px Arial, sans-serif;
+        }
+
+        button:hover {
+            background: var(--accent-dark);
+        }
+
+        .switch {
+            margin-top: 18px;
+            text-align: center;
+            font: 14px Arial, sans-serif;
+            color: var(--muted);
+        }
+
+        .switch button {
+            width: auto;
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            color: var(--accent-dark);
+            font-weight: 700;
+        }
+
+        .error {
+            min-height: 22px;
+            margin-top: 14px;
+            color: #a23a2d;
+            font: 14px Arial, sans-serif;
+        }
+
+        #pairing {
+            display: none;
+        }
+
+        .code {
+            margin: 20px 0;
+            padding: 18px;
+            background: #e4f1eb;
+            color: var(--accent-dark);
+            text-align: center;
+            font: 700 28px Arial, sans-serif;
+            letter-spacing: 4px;
+        }
+
+        @media (max-width: 480px) {
+            main {
+                padding: 26px 22px;
+            }
+
+            h1 {
+                font-size: 34px;
+            }
+        }
+    </style>
 </head>
+
+<body>
+    <main>
+        <section id="auth">
+            <div class="mark">H</div>
+            <h1>Hakili</h1>
+            <p>Ton assistant personnel pour retrouver l’essentiel dans tes conversations.</p>
+            <form id="auth-form">
+                <label for="email">Adresse email</label>
+                <input id="email" name="email" type="email" autocomplete="email" required>
+                <label for="password">Mot de passe</label>
+                <input id="password" name="password" type="password" minlength="12" autocomplete="current-password"
+                    required>
+                <button id="submit" type="submit">Se connecter</button>
+            </form>
+            <div class="error" id="error" role="alert"></div>
+            <div class="switch"><span id="switch-text">Pas encore de compte ?</span> <button id="switch"
+                    type="button">Créer un compte</button></div>
+        </section>
+        <section id="pairing">
+            <div class="mark">H</div>
+            <h1>Connecter WhatsApp</h1>
+            <p>Entre ton numéro au format international, sans le signe + ni espaces.</p>
+            <form id="pair-form">
+                <label for="phone">Numéro WhatsApp</label>
+                <input id="phone" type="tel" placeholder="223XXXXXXXX" required>
+                <button type="submit">Générer le code</button>
+            </form>
+            <div class="code" id="code" hidden></div>
+            <div class="error" id="pair-error" role="alert"></div>
+            <button id="logout" type="button">Se déconnecter</button>
+        </section>
+    </main>
+    <script>
+        const auth = document.querySelector('#auth');
+        const pairing = document.querySelector('#pairing');
+        const form = document.querySelector('#auth-form');
+        const error = document.querySelector('#error');
+        const submit = document.querySelector('#submit');
+        const switchButton = document.querySelector('#switch');
+        let register = false;
+
+        switchButton.onclick = () => {
+            register = !register;
+            submit.textContent = register ? 'Créer mon compte' : 'Se connecter';
+            switchButton.textContent = register ? 'J’ai déjà un compte' : 'Créer un compte';
+            document.querySelector('#switch-text').textContent = register ? 'Déjà inscrit ?' : 'Pas encore de compte ?';
+            document.querySelector('#password').autocomplete = register ? 'new-password' : 'current-password';
+            error.textContent = '';
+        };
+
+        form.onsubmit = async (event) => {
+            event.preventDefault();
+            error.textContent = '';
+            const body = { email: document.querySelector('#email').value, password: document.querySelector('#password').value };
+            const response = await fetch(register ? '/api/register' : '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            const data = await response.json();
+            if (!response.ok) { error.textContent = data.error || 'Une erreur est survenue.'; return; }
+            auth.style.display = 'none'; pairing.style.display = 'block';
+        };
+
+        document.querySelector('#pair-form').onsubmit = async (event) => {
+            event.preventDefault();
+            const target = document.querySelector('#pair-error'); target.textContent = '';
+            const response = await fetch('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phoneNumber: document.querySelector('#phone').value }) });
+            const data = await response.json();
+            if (!response.ok) { target.textContent = data.error || 'Pairing impossible.'; return; }
+            const code = document.querySelector('#code'); code.hidden = false; code.textContent = data.code;
+        };
+
+        document.querySelector('#logout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.reload(); };
+    </script>
+</body>
+
+</html>
+</head>
+
 <body>
     <script src="server.js" type="module"></script>
 </body>
+
 </html>
