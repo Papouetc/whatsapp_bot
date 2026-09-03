@@ -30,6 +30,7 @@ function getSession(userId = 'legacy') {
             sentByBot: new Set(),
             sendQueue: Promise.resolve(),
             handlers: null
+            , connection: 'closed'
         };
         sessions.set(userId, session);
     }
@@ -67,6 +68,7 @@ function setupEvents(session, sockInstance, saveCreds, handlers) {
             } = update;
 
             if (connection === 'connecting') {
+                session.connection = 'connecting';
                 console.log(
                     '🔄 Connexion WhatsApp en cours...'
                 );
@@ -75,6 +77,7 @@ function setupEvents(session, sockInstance, saveCreds, handlers) {
             }
 
             if (connection === 'open') {
+                session.connection = 'open';
                 console.log(
                     '✅ Connecté à WhatsApp'
                 );
@@ -95,6 +98,7 @@ function setupEvents(session, sockInstance, saveCreds, handlers) {
             }
 
             if (connection === 'close') {
+                session.connection = 'closed';
                 const error =
                     lastDisconnect?.error;
 
@@ -315,6 +319,10 @@ export async function startWhatsApp(userIdOrHandlers = 'legacy', maybeHandlers) 
         : userIdOrHandlers;
     const session = getSession(userId);
     session.handlers = handlers;
+
+    if (session.sock) {
+        return session.sock;
+    }
 
     try {
         console.log(
@@ -542,6 +550,12 @@ export async function requestPairingCode(userId, phoneNumber) {
     while (!session.sock && Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 250));
     }
+
+    if (!session.sock) {
+        throw new Error('Socket WhatsApp indisponible');
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
     if (!session.sock) {
         throw new Error('Socket WhatsApp indisponible');
