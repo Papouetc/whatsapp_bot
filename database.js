@@ -202,8 +202,18 @@ export async function initDB() {
     `);
 
     await pool.query(`
-      ALTER TABLE settings
-      ADD PRIMARY KEY (user_id, key)
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'settings'::regclass
+            AND contype = 'p'
+        ) THEN
+          ALTER TABLE settings
+          ADD PRIMARY KEY (user_id, key);
+        END IF;
+      END $$;
     `);
 
     await pool.query(`
