@@ -1,5 +1,5 @@
 import { getSetting } from './database.js';
-
+import { getOwnJid } from "./whatsapp.js";
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
@@ -9,7 +9,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
-const command= ""
+const command = ""
 
 export const PERSONALITY = `Tu es Hakili, l'assistant personnel WhatsApp de l'utilisateur.
 
@@ -40,6 +40,10 @@ Ton objectif n'est pas de maximiser la quantité d'informations transmises, mais
 Analyse les messages dans leur contexte plutôt que de les considérer individuellement.
 
 Lorsque plusieurs personnes participent à une conversation, utilise les informations disponibles sur les expéditeurs pour distinguer l'utilisateur des autres participants.
+
+  Dans le contexte des messages, [UTILISATEUR] représente le propriétaire du compte WhatsApp. Les expéditeurs marqués [AUTRE: ...] sont des contacts ou des participants externes.
+
+  Quand une action est demandée à [UTILISATEUR], identifie-la comme une action attendue de sa part. Quand [UTILISATEUR] promet une action, attribue-lui cet engagement. Ne crée pas de tâche pour une action déjà clairement effectuée par [UTILISATEUR].
 
 Prends en compte les messages précédents lorsqu'ils sont nécessaires pour comprendre une demande, une décision, une tâche ou une réponse.
 
@@ -195,7 +199,9 @@ function formatMessages(messages) {
         ? `[Groupe ${m.chat_name || m.chat_id}]`
         : `[DM ${m.chat_name || m.chat_id}]`;
 
-      const senderLabel = m.sender_name || m.sender;
+      const senderLabel = m.is_from_me === true
+        ? '[UTILISATEUR]'
+        : `[AUTRE: ${m.sender_name || m.sender}]`;
 
       return `${chatLabel} ${senderLabel} (${date}): ${m.content}`;
     })
@@ -272,15 +278,15 @@ export async function callAI(systemPrompt, userPrompt, opts = {}) {
   const secondaryAvailable = useGeminiFirst ? !!GROQ_API_KEY : !!GEMINI_API_KEY;
 
   try {
-/*     console.log('TYPE systemPrompt:', typeof systemPrompt);
-console.log('TYPE userPrompt:', typeof userPrompt);
-console.log('TYPE opts:', typeof opts);
-console.log('userPrompt:', userPrompt); */
+    /*     console.log('TYPE systemPrompt:', typeof systemPrompt);
+    console.log('TYPE userPrompt:', typeof userPrompt);
+    console.log('TYPE opts:', typeof opts);
+    console.log('userPrompt:', userPrompt); */
     const result = await primary(systemPrompt, userPrompt, opts);
     console.log(`🟢 Réponse générée par ${primaryName}`);
     return result;
   } catch (err) {
-    if ((err.status === 429 || err.status=== 413 || err.status== 503) && secondaryAvailable) {
+    if ((err.status === 429 || err.status === 413 || err.status == 503) && secondaryAvailable) {
       console.warn(`⚠️  ${primaryName} en rate-limit (429), bascule sur ${secondaryName}...`);
       const result = await secondary(systemPrompt, userPrompt, opts);
       console.log(`🔵 Réponse générée par ${secondaryName} (fallback)`);
@@ -298,7 +304,12 @@ export async function summarizeMessages(messages) {
   }
 
   const formatted = formatMessages(messages);
-  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const currentTime = now.toLocaleTimeString('fr-FR', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 
   console.log('📤 TEXTE ENVOYÉ À GROQ :\n', formatted);
   const raw = await callAI(
@@ -535,14 +546,35 @@ export async function summarizeMessages(messages) {
   FORMAT DU RÉSUMÉ
   ════════════════════════════════════
   
-  Le champ "summary" doit contenir le texte final organisé en 4 sections fixes,
-  dans cet ordre, avec ces titres exacts (émojis inclus) :
+  Le champ "summary" doit contenir le texte final organisé avec les sections
+  ci-dessous, dans cet ordre, avec ces titres exacts (émojis inclus) :
   
   🔴 Important
   💬 Discussions
   ⚡ À traiter
   📌 Informations
   ⭕ Nouvelles tache(s) detecté(es)
+
+  LIBERTÉ DE RÉDACTION :
+
+  Tu peux personnaliser légèrement la présentation à chaque génération tout en
+  restant factuel et professionnel.
+
+  Tu peux ajouter au début une courte introduction naturelle, par exemple :
+  "Bonjour, voici ce que tu dois savoir d'après tes messages." ou
+  "Bonsoir, voici les éléments qui méritent ton attention."
+
+  Adapte "Bonjour" ou "Bonsoir" à l'heure actuelle fournie dans le contexte.
+  Tu peux reformuler cette introduction et varier sa formulation, mais elle doit
+  rester courte et ne doit pas inventer d'information.
+
+  Tu peux ajouter à la fin une courte conclusion, par exemple :
+  "Je n'ai gardé que ce qui mérite ton attention." Tu peux la reformuler
+  naturellement, mais ne répète pas le contenu du résumé et ne prétends pas
+  avoir effectué une action.
+
+  L'introduction et la conclusion sont facultatives si aucun message pertinent
+  n'a été trouvé. Elles ne doivent jamais remplacer les informations concrètes.
   RÈGLES DE RÉPARTITION :
   
   - 🔴 Important : demandes adressées à l'utilisateur qui attendent une action
@@ -650,6 +682,7 @@ export async function summarizeMessages(messages) {
     `Voici les messages reçus :
   
   Date du jour : ${today}
+  Heure actuelle : ${currentTime}
   
   ${formatted}
   
@@ -658,8 +691,8 @@ export async function summarizeMessages(messages) {
   Renvoie uniquement le JSON demandé.`,
     { json: true }
   );
-  console.log('raw:',raw);
-  
+  console.log('raw:', raw);
+
   try {
     const parsed = JSON.parse(raw);
     return {

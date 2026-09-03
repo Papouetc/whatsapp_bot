@@ -3,6 +3,7 @@ import cron from 'node-cron';
 import { getUnsummarizedMessages, markAsSummarized, getSetting, saveTasks } from './database.js';
 import { summarizeMessages } from './ai.js';
 import { sendTelegramMessage } from './telegram.js';
+import { sendWhatsAppMessage, getOwnJid } from './whatsapp.js';
 
 export function scheduleDailySummary() {
   const summaryHour = parseInt(process.env.SUMMARY_HOUR || 22);
@@ -21,7 +22,8 @@ export function scheduleDailySummary() {
       
       const { summary, tasks } = await summarizeMessages(messages);
       
-      await sendTelegramMessage(`📋 Résumé du jour:\n\n${summary}`);
+      await sendTelegramMessage(`📋 Résumé automatique du jour:\n\n${summary}`);
+      await sendWhatsAppMessage(getOwnJid(),`📋 Résumé automatique du jour:\n\n${summary}`)
       
       if (tasks && tasks.length > 0) {
         await saveTasks(tasks);
