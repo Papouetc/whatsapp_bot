@@ -18,14 +18,14 @@
       '\n/set <clé> <valeur>';
 
       WITH recent_rows AS (
-    SELECT your_id_column 
-    FROM your_table_name
-    ORDER BY created_at DESC  -- Assumes 'created_at' tracks recent rows
-    LIMIT 100
+    SELECT id 
+    FROM messages
+    ORDER BY id DESC  
+    LIMIT 200
 )
-UPDATE your_table_name
-SET your_column_name = 'new_value'
-WHERE your_id_column IN (SELECT your_id_column FROM recent_rows);
+UPDATE messages
+SET summarized = false
+WHERE id IN (SELECT id FROM recent_rows);
 
 WITH recent_rows AS (
     SELECT id 

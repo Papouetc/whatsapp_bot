@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { validateEnvironment } from './config.js';
 
 import {
   initDB,
@@ -12,17 +13,21 @@ import {
   markTaskDone,
   saveTasks,
   getConversationHistory
+  , deleteAllStoredData
 } from './database.js';
 
 import {
   startWhatsApp,
+  requestPairingCode,
   sendWhatsAppMessage,
+  logoutWhatsApp,
   getOwnJid
 } from './whatsapp.js';
 
 import {
   startTelegramListener,
-  sendTelegramMessage
+  sendTelegramMessage,
+  sendTelegramMessageForUser
 } from './telegram.js';
 
 import { scheduleDailySummary } from './scheduler.js';
@@ -48,29 +53,25 @@ import { handleChatMessage } from './chat.js';
 
 import { hybridSearch } from './search.js';
 import { json } from 'express';
+import { logSafeError } from './logger.js';
 
 process.on('uncaughtException', (err) => {
-  console.error(
-    '⚠️ Erreur non interceptée (le bot continue) :',
-    err.message
-  );
+  logSafeError('Erreur non interceptée (le bot continue)', err);
 });
 
 process.on('unhandledRejection', (err) => {
-  console.error(
-    '⚠️ Rejet de promesse non intercepté (le bot continue) :',
-    err
-  );
+  logSafeError('Rejet de promesse non intercepté (le bot continue)', err);
 });
 
 export async function main() {
   try {
+    validateEnvironment();
     console.log('🚀 Démarrage du bot WhatsApp...');
 
     await initDB();
     console.log('✅ Base de données initialisée');
 
-    await startWhatsApp({
+    await startWhatsApp('legacy', {
       onMessage: handleWhatsAppMessage,
       onCommand: handleWhatsAppCommand,
       onSelfChat: handleChatMessage
@@ -87,10 +88,7 @@ export async function main() {
     printAvailableCommands();
 
   } catch (err) {
-    console.error(
-      '❌ Erreur fatale au démarrage :',
-      err
-    );
+    logSafeError('Erreur fatale au démarrage', err);
 
     await closeDB();
 
@@ -107,59 +105,55 @@ async function handleWhatsAppMessage(msgData) {
     isStatus,
     isNewsletter
   } = msgData;
+  const userId = msgData.userId || 'legacy';
 
   console.log(
-    `📩 Message de ${sender_name || sender}: ${content?.substring(0, 50)}...`
+    `📩 Message reçu de ${sender_name || sender}`
   );
 
   const urgencyDetectionOn =
-    (await getSetting('urgency_detection')) === 'on';
-  console.log('urgency dtect:', urgencyDetectionOn);
-  console.log('isPotentiallyUrgent(content):', isPotentiallyUrgent(content));
-  
+    (await getSetting('urgency_detection', userId)) === 'on';
+  const potentiallyUrgent = await isPotentiallyUrgent(content, userId);
+
   if (
     urgencyDetectionOn &&
-    isPotentiallyUrgent(content)
+    potentiallyUrgent
   ) {
     try {
-      console.log('content', content);
-      
       const {
         urgent,
         reason
-      } = await confirmUrgency({sender, content});
-      console.log('urgent',urgent);
-      
+      } = await confirmUrgency({ sender, content }, userId);
+      console.log('urgent', urgent);
+
       console.log('reason', reason);
-      
+
       if (urgent) {
         const alertMessage =
           `🚨 Vous avez un message URGENT de ${sender_name || sender}:\n` +
           `${content}\n`;
 
-        await sendTelegramMessage(alertMessage);
+        await sendTelegramMessageForUser(alertMessage, userId);
 
         await sendWhatsAppMessage(
-          getOwnJid(),
+          userId,
+          getOwnJid(userId),
           alertMessage
         );
 
         console.log(
           '🚨 Alerte urgence envoyée sur Telegram et WhatsApp'
         );
-      }else console.log("Pas urgent");
-      
+      } else console.log("Pas urgent");
+
 
     } catch (err) {
-      console.error(
-        '❌ Erreur détection urgence:',
-        err
-      );
+      logSafeError('Erreur détection urgence', err);
     }
   }
 
   const draftModeOn =
-    (await getSetting('draft_mode')) === 'on';
+    (await getSetting('draft_mode', userId)) === 'on';
 
   if (!draftModeOn) {
     return;
@@ -186,7 +180,8 @@ async function handleWhatsAppMessage(msgData) {
       await getConversationHistory(
         sender,
         20,
-        msgData.id
+        msgData.id,
+        userId
       );
 
     console.log(
@@ -197,7 +192,8 @@ async function handleWhatsAppMessage(msgData) {
       await generateDraftReply({
         sender,
         recentHistory,
-        incomingContent: content
+        incomingContent: content,
+        userId
       });
 
     if (!draft?.trim()) {
@@ -212,7 +208,8 @@ async function handleWhatsAppMessage(msgData) {
       addDraft(
         sender,
         draft.trim(),
-        sender_name
+        sender_name,
+        userId
       );
 
     if (!draftId) {
@@ -228,34 +225,32 @@ async function handleWhatsAppMessage(msgData) {
     );
 
     const displayName = sender_name || sender;
-    const draftMessage=  `📝 Brouillon #${draftId}\n\n` +
-    `Vous avez reçu un message de 👤 ${sender_name || sender}:\n\nMessage: ${content?.substring(0, 100)}...\n\n`+
-    `Voici une proposition de réponse: \n\n` +
-    `${draft.trim()}\n\n` +
-    `📤 Entrez : /envoie ${draftId} pour que je lui envoie directement la réponse`
-    let jid= getOwnJid();
-    console.log('jid: ',jid);
-    
-    await sendTelegramMessage( draftMessage
+    const draftMessage = `📝 Brouillon #${draftId}\n\n` +
+      `Vous avez reçu un message de 👤 ${sender_name || sender}:\n\nMessage: ${content?.substring(0, 100)}...\n\n` +
+      `Voici une proposition de réponse: \n\n` +
+      `${draft.trim()}\n\n` +
+      `📤 Entrez : /envoie ${draftId} pour que je lui envoie directement la réponse`
+    let jid = getOwnJid(userId);
+    console.log('jid: ', jid);
+
+    await sendTelegramMessageForUser(draftMessage, userId
     );
-    await sendWhatsAppMessage(jid,draftMessage
-     )
+    await sendWhatsAppMessage(userId, jid, draftMessage
+    )
     console.log(
       `📲 Draft #${draftId} envoyé sur Telegram et whatsapp`
     );
 
   } catch (err) {
-    console.error(
-      '❌ Erreur génération brouillon:',
-      err
-    );
+    logSafeError('Erreur génération brouillon', err);
   }
 }
 
-function createReply(source, sender) {
+function createReply(source, sender, userId = 'legacy') {
   if (source === 'whatsapp') {
     return async (message) => {
       await sendWhatsAppMessage(
+        userId,
         sender,
         message
       );
@@ -263,14 +258,15 @@ function createReply(source, sender) {
   }
 
   return async (message) => {
-    await sendTelegramMessage(message);
+    await sendTelegramMessageForUser(message, userId);
   };
 }
 
 async function handleCommand(
   commandText,
   source,
-  sender
+  sender,
+  userId = 'legacy'
 ) {
   const args =
     commandText.trim().split(/\s+/);
@@ -279,12 +275,40 @@ async function handleCommand(
     args[0]?.toLowerCase();
 
   const reply =
-    createReply(source, sender);
+    createReply(source, sender, userId);
 
   switch (cmd) {
 
+    case '/start':
+      await reply(
+        'Bienvenue. Utilise /pair <numero WhatsApp> pour connecter ton compte, par exemple /pair 33612345678.'
+      );
+      break;
+
+    case '/pair': {
+      const phoneNumber = args[1];
+      if (!phoneNumber) {
+        await reply('❌ Utilisation : /pair <numero WhatsApp>');
+        return;
+      }
+
+      try {
+        await startWhatsApp(userId, {
+          onMessage: handleWhatsAppMessage,
+          onCommand: handleWhatsAppCommand,
+          onSelfChat: handleChatMessage
+        });
+        const code = await requestPairingCode(userId, phoneNumber);
+        await reply(`📱 Code de pairing WhatsApp : ${code}`);
+      } catch (err) {
+        logSafeError('Erreur /pair', err);
+        await reply('❌ Impossible de générer le code de pairing. Réessaie avec le numéro au format international.');
+      }
+      break;
+    }
+
     case '/resume':
-      await handleResumeCommand(reply);
+      await handleResumeCommand(reply, userId);
       break;
 
     case '/search': {
@@ -300,14 +324,15 @@ async function handleCommand(
 
       await handleSearchCommand(
         query,
-        reply
+        reply,
+        userId
       );
 
       break;
     }
 
     case '/taches':
-      await handleTasksCommand(reply);
+      await handleTasksCommand(reply, userId);
       break;
 
     case '/fait': {
@@ -322,7 +347,8 @@ async function handleCommand(
 
       await handleTaskDoneCommand(
         taskId,
-        reply
+        reply,
+        userId
       );
 
       break;
@@ -341,13 +367,18 @@ async function handleCommand(
       await handleDraftCommand(
         draftId,
         sender,
+        userId
       );
 
       break;
     }
 
     case '/settings':
-      await handleSettingsCommand(reply);
+      await handleSettingsCommand(reply, userId);
+      break;
+
+    case '/supprimer-donnees':
+      await handleDeleteDataCommand(args[1], reply, userId);
       break;
 
     case '/set': {
@@ -365,7 +396,8 @@ async function handleCommand(
       await handleSetCommand(
         key,
         value,
-        reply
+        reply,
+        userId
       );
 
       break;
@@ -384,30 +416,34 @@ async function handleCommand(
 
 async function handleWhatsAppCommand(
   command,
-  sender
+  sender,
+  userId = 'legacy'
 ) {
   await handleCommand(
     command,
     'whatsapp',
-    sender
+    sender,
+    userId
   );
 }
 
 async function handleTelegramCommand(
   commandText,
-  sender
+  sender,
+  userId = 'legacy'
 ) {
   await handleCommand(
     commandText,
     'telegram',
-    sender
+    sender,
+    userId
   );
 }
 
-async function handleResumeCommand(reply) {
+async function handleResumeCommand(reply, userId = 'legacy') {
   try {
     const messages =
-      await getUnsummarizedMessages();
+      await getUnsummarizedMessages(userId);
 
     if (messages.length === 0) {
       await reply(
@@ -419,7 +455,7 @@ async function handleResumeCommand(reply) {
     const {
       summary,
       tasks
-    } = await summarizeMessages(messages);
+    } = await summarizeMessages(messages, userId);
 
     await reply(
       `📋 Résumé :\n${summary}`
@@ -429,7 +465,7 @@ async function handleResumeCommand(reply) {
       tasks &&
       tasks.length > 0
     ) {
-      await saveTasks(tasks);
+      await saveTasks(tasks, userId);
     }
 
     const ids =
@@ -437,13 +473,10 @@ async function handleResumeCommand(reply) {
         message => message.id
       );
 
-    await markAsSummarized(ids);
+    await markAsSummarized(ids, userId);
 
   } catch (err) {
-    console.error(
-      'Erreur /resume :',
-      err
-    );
+    logSafeError('Erreur /resume', err);
 
     await reply(
       '❌ Erreur lors de la génération du résumé.'
@@ -453,10 +486,11 @@ async function handleResumeCommand(reply) {
 
 async function handleSearchCommand(
   query,
-  reply
+  reply,
+  userId = 'legacy'
 ) {
   reply(`Je lance la recherche dans vos messages récent...`);
-  
+
   try {
     if (!query?.trim()) {
       await reply(
@@ -465,12 +499,8 @@ async function handleSearchCommand(
       return;
     }
 
-    console.log(
-      `🔎 Recherche : ${query}`
-    );
-
     const results =
-      await hybridSearch(query);
+      await hybridSearch(query, userId);
 
     if (results.length === 0) {
       await reply(
@@ -499,13 +529,8 @@ async function handleSearchCommand(
         })
         .join('\n');
 
-    console.log(
-      '📚 CONTEXTE ENVOYÉ À L’IA:\n',
-      context
-    );
-
     const jid =
-      getOwnJid();
+      getOwnJid(userId);
 
     const answer =
       await callAI(
@@ -544,23 +569,16 @@ Transforme les informations techniques en une réponse naturelle.
 
 Le compte utilisateur est : ${jid}
         `,
-        context
+        context,
+        { userId }
       );
-
-    console.log(
-      '🤖 Réponse IA:',
-      answer
-    );
 
     await reply(
       `🔎 Recherche : ${query}\n\n${answer}`
     );
 
   } catch (err) {
-    console.error(
-      '❌ Erreur /search :',
-      err
-    );
+    logSafeError('Erreur /search', err);
 
     await reply(
       '❌ Une erreur est survenue pendant la recherche.'
@@ -568,10 +586,10 @@ Le compte utilisateur est : ${jid}
   }
 }
 
-async function handleTasksCommand(reply) {
+async function handleTasksCommand(reply, userId = 'legacy') {
   try {
     const tasks =
-      await getPendingTasks();
+      await getPendingTasks(userId);
 
     if (tasks.length === 0) {
       await reply(
@@ -594,10 +612,7 @@ async function handleTasksCommand(reply) {
     await reply(response);
 
   } catch (err) {
-    console.error(
-      '❌ Erreur /taches :',
-      err
-    );
+    logSafeError('Erreur /taches', err);
 
     await reply(
       '❌ Impossible de récupérer les tâches.'
@@ -607,7 +622,8 @@ async function handleTasksCommand(reply) {
 
 async function handleTaskDoneCommand(
   taskId,
-  reply
+  reply,
+  userId = 'legacy'
 ) {
   try {
     const id =
@@ -624,7 +640,7 @@ async function handleTaskDoneCommand(
     }
 
     const success =
-      await markTaskDone(id);
+      await markTaskDone(id, userId);
 
     if (success) {
       await reply(
@@ -637,10 +653,7 @@ async function handleTaskDoneCommand(
     }
 
   } catch (err) {
-    console.error(
-      'Erreur /fait :',
-      err
-    );
+    logSafeError('Erreur /fait', err);
 
     await reply(
       '❌ Erreur lors de la mise à jour de la tâche.'
@@ -648,10 +661,10 @@ async function handleTaskDoneCommand(
   }
 }
 
-async function handleSettingsCommand(reply) {
+async function handleSettingsCommand(reply, userId = 'legacy') {
   try {
     const settings =
-      await getAllSettings();
+      await getAllSettings(userId);
 
     let response = await callAI(`${PERSONALITY} Tu es un assistant personnelle sur whatsapp, tu as un certains nombre de fo
       fonctinnalité. L'utilisateur te demande de faire le point sur tes settings. Présente les paramètres sous forme de sections courtes et clairement séparées.
@@ -697,17 +710,14 @@ async function handleSettingsCommand(reply) {
       n'invente pas de settings et cache les paramètres techniques comme :
 
       draft_mode_off_for: []
-      `,`Parametres: ${JSON.stringify(settings)}`,
-    {json: false})
-      
+      `, `Parametres: ${JSON.stringify(settings)}`,
+      { json: false, userId })
+
 
     await reply(response);
 
   } catch (err) {
-    console.error(
-      'Erreur /settings :',
-      err
-    );
+    logSafeError('Erreur /settings', err);
 
     await reply(
       '❌ Erreur lors de la récupération des paramètres.'
@@ -715,15 +725,37 @@ async function handleSettingsCommand(reply) {
   }
 }
 
+async function handleDeleteDataCommand(confirmation, reply, userId = 'legacy') {
+  if (confirmation !== 'CONFIRMER') {
+    await reply(
+      '⚠️ Cette action supprimera messages, tâches, réglages et session WhatsApp. Pour confirmer, utilise : /supprimer-donnees CONFIRMER'
+    );
+    return;
+  }
+
+  try {
+    await deleteAllStoredData(userId);
+    await logoutWhatsApp(userId);
+    await reply(
+      '✅ Toutes les données ont été supprimées. Un nouveau pairing WhatsApp sera nécessaire.'
+    );
+  } catch (err) {
+    logSafeError('Erreur suppression des données', err);
+    await reply('❌ Impossible de supprimer toutes les données.');
+  }
+}
+
 async function handleSetCommand(
   key,
   value,
-  reply
+  reply,
+  userId = 'legacy'
 ) {
   try {
     await setSetting(
       key,
-      value
+      value,
+      userId
     );
 
     await reply(
@@ -731,10 +763,7 @@ async function handleSetCommand(
     );
 
   } catch (err) {
-    console.error(
-      'Erreur /set :',
-      err
-    );
+    logSafeError('Erreur /set', err);
 
     await reply(
       '❌ Erreur lors de la mise à jour du paramètre.'
@@ -766,6 +795,9 @@ async function handleHelpCommand(reply) {
 
 /set <clé> <valeur>
 → Modifier un paramètre
+
+/supprimer-donnees CONFIRMER
+→ Supprimer toutes les données et la session WhatsApp
 `;
 
   await reply(help);

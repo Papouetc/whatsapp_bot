@@ -4,20 +4,22 @@ import {
 } from './whatsapp.js';
 
 import {
-  sendTelegramMessage
+  sendTelegramMessageForUser
 } from './telegram.js';
+import { logSafeError } from './logger.js';
 
 const drafts = new Map();
 let nextId = 1;
 
-export function addDraft(sender, content,sender_name) {
+export function addDraft(sender, content, sender_name, userId = 'legacy') {
   try {
     const id = nextId++;
 
     drafts.set(id, {
       sender,
       content,
-      sender_name
+      sender_name,
+      userId
     });
 
     console.log(
@@ -27,10 +29,7 @@ export function addDraft(sender, content,sender_name) {
     return id;
 
   } catch (error) {
-    console.error(
-      '❌ Erreur ajout draft:',
-      error
-    );
+    logSafeError('Erreur ajout draft', error);
 
     return null;
   }
@@ -39,6 +38,7 @@ export function addDraft(sender, content,sender_name) {
 export async function handleDraftCommand(
   draftId,
   requestingSender,
+  userId = 'legacy'
 ) {
   try {
     const id =
@@ -48,8 +48,9 @@ export async function handleDraftCommand(
       !Number.isInteger(id) ||
       id <= 0
     ) {
-      await sendTelegramMessage(
-        `❌ Identifiant de brouillon invalide : ${draftId}`
+      await sendTelegramMessageForUser(
+        `❌ Identifiant de brouillon invalide : ${draftId}`,
+        userId
       );
 
       return;
@@ -58,9 +59,10 @@ export async function handleDraftCommand(
     const draft =
       drafts.get(id);
 
-    if (!draft) {
-      await sendTelegramMessage(
-        `❌ Brouillon #${id} introuvable ou déjà envoyé.`
+    if (!draft || draft.userId !== userId) {
+      await sendTelegramMessageForUser(
+        `❌ Brouillon #${id} introuvable ou déjà envoyé.`,
+        userId
       );
 
       return;
@@ -70,15 +72,8 @@ export async function handleDraftCommand(
       `📤 Envoi du brouillon #${id}`
     );
 
-    console.log(
-      `👤 Destinataire : ${draft.sender_name||draft.sender}`
-    );
-
-    console.log(
-      `💬 Contenu : ${draft.content}`
-    );
-
     await sendWhatsAppMessage(
+      userId,
       draft.sender,
       draft.content
     );
@@ -86,27 +81,27 @@ export async function handleDraftCommand(
     drafts.delete(id);
 
     console.log(
-      `✅ Brouillon #${id} envoyé à ${draft.sender_name||draft.sender}`
+      `✅ Brouillon #${id} envoyé à ${draft.sender_name || draft.sender}`
     );
 
-    await sendTelegramMessage(
-      `✅ Draft #${id} envoyé à ${draft.sender_name||draft.sender}`
+    await sendTelegramMessageForUser(
+      `✅ Draft #${id} envoyé à ${draft.sender_name || draft.sender}`,
+      userId
     );
 
     await sendWhatsAppMessage(
-      getOwnJid(),
-      `✅ Draft #${id} envoyé à ${draft.sender_name||draft.sender}`
+      userId,
+      getOwnJid(userId),
+      `✅ Draft #${id} envoyé à ${draft.sender_name || draft.sender}`
     );
 
   } catch (error) {
-    console.error(
-      `❌ Erreur envoi draft #${draftId}:`,
-      error
-    );
+    logSafeError(`Erreur envoi draft #${draftId}`, error);
 
-    await sendTelegramMessage(
+    await sendTelegramMessageForUser(
       `❌ Échec de l'envoi du draft #${draftId}.\n\n` +
-      `Destinataire : ${drafts.get(parseInt(draftId, 10))?.sender || 'inconnu'}`
+      `Destinataire : ${drafts.get(parseInt(draftId, 10))?.sender || 'inconnu'}`,
+      userId
     );
   }
 }

@@ -1,6 +1,7 @@
 
 import express from 'express';
 import {main} from './index.js';
+import { logSafeError } from './logger.js';
 const app= express();
 import dotenv from 'dotenv';
 
@@ -8,7 +9,7 @@ dotenv.config();
 
 async function startApp() {
     await main().catch((err) => {
-        console.error('❌ Erreur fatale :', err);
+        logSafeError('Erreur fatale', err);
         process.exit(1);
       });
 }

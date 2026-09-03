@@ -1,10 +1,9 @@
 import { searchArchiveByKeyword } from './database.js';
 import { callAI } from './ai.js';
+import { logSafeError } from './logger.js';
 
-export async function semanticSearch(query) {
+export async function semanticSearch(query, userId = 'legacy') {
   try {
-    console.log('🧠 semanticSearch:', query);
-
     const expansionRaw = await callAI(
       `Tu es un moteur d'expansion de recherche.
 
@@ -34,7 +33,7 @@ Bon résultat :
 Réponds uniquement avec un JSON valide :
 {"keywords":["..."]}`,
       query,
-      { json: true }
+      { json: true, userId }
     );
 
     let keywords = [];
@@ -61,18 +60,13 @@ Réponds uniquement avec un JSON valide :
       keywords.map(k => k.toLowerCase())
     )];
 
-    console.log('🧠 Mots-clés:', keywords);
-
     const resultsMap = new Map();
 
     for (const keyword of keywords) {
       const results = await searchArchiveByKeyword(
         keyword,
-        10
-      );
-
-      console.log(
-        `🔎 "${keyword}" → ${results.length} résultats`
+        10,
+        userId
       );
 
       for (const message of results) {
@@ -116,25 +110,10 @@ Réponds uniquement avec un JSON valide :
         return Number(a.timestamp) - Number(b.timestamp);
       });
 
-    console.log(
-      '🧠 Résultats sémantiques:',
-      results.length
-    );
-
-    console.log(
-      '🎯 Meilleurs résultats:',
-      results.slice(0, 10).map(r => ({
-        id: r.id,
-        content: r.content,
-        score: r.semanticScore,
-        keywords: r.matchedKeywords
-      }))
-    );
-
     return results.slice(0, 30);
 
   } catch (err) {
-    console.error('❌ semanticSearch:', err);
+    logSafeError('Erreur recherche sémantique', err);
     return [];
   }
 }
@@ -176,19 +155,18 @@ function lexicalScore(message, query) {
   return score;
 }
 
-export async function hybridSearch(query) {
-  console.log('🔎 Hybrid search:', query);
-
+export async function hybridSearch(query, userId = 'legacy') {
   const directResults = await searchArchiveByKeyword(
     query,
-    MAX_RESULTS
+    MAX_RESULTS,
+    userId
   );
 
   console.log(
     `🔎 Recherche directe : ${directResults.length} résultats`
   );
 
-  const semanticResults = await semanticSearch(query);
+  const semanticResults = await semanticSearch(query, userId);
 
   console.log(
     `🧠 Recherche sémantique : ${semanticResults.length} résultats`
@@ -267,16 +245,7 @@ export async function hybridSearch(query) {
     })
     .slice(0, MAX_RESULTS);
 
-  console.log(
-    '🎯 Résultats hybrides:',
-    results.map(r => ({
-      id: r.id,
-      content: r.content,
-      lexicalScore: r.lexicalScore,
-      semanticScore: r.semanticScore,
-      totalScore: r.totalScore
-    }))
-  );
+  console.log(`🎯 Résultats hybrides : ${results.length}`);
 
   return results;
 }

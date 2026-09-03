@@ -6,27 +6,41 @@ import {
 
 import pino from 'pino';
 import { createAuthState } from './auth-state.js';
-import { saveMessage } from './database.js';
+import {
+    saveMessage,
+    setUserWhatsAppJid
+} from './database.js';
 import dotenv from 'dotenv';
+import { logSafeError } from './logger.js';
 
 dotenv.config();
 
-let sock = null;
-let reconnecting = false;
-let pairingRequested = false;
-
-const sentByBot = new Set();
 const SENT_IDS_MAX = 200;
 
-// File d'attente pour sérialiser les envois (évite les conflits de session Signal
-// quand plusieurs messages partent rapidement vers le même destinataire, notamment le self-chat)
-let sendQueue = Promise.resolve();
+const sessions = new Map();
 
-function rememberSentId(id) {
-    sentByBot.add(id);
-    if (sentByBot.size > SENT_IDS_MAX) {
-        const oldest = sentByBot.values().next().value;
-        sentByBot.delete(oldest);
+function getSession(userId = 'legacy') {
+    let session = sessions.get(userId);
+    if (!session) {
+        session = {
+            userId,
+            sock: null,
+            reconnecting: false,
+            pairingRequested: false,
+            sentByBot: new Set(),
+            sendQueue: Promise.resolve(),
+            handlers: null
+        };
+        sessions.set(userId, session);
+    }
+    return session;
+}
+
+function rememberSentId(session, id) {
+    session.sentByBot.add(id);
+    if (session.sentByBot.size > SENT_IDS_MAX) {
+        const oldest = session.sentByBot.values().next().value;
+        session.sentByBot.delete(oldest);
     }
 }
 
@@ -35,15 +49,15 @@ function extractNumber(jid) {
     return jid.split('@')[0].split(':')[0];
 }
 
-function isOwnJid(remoteJid) {
-    if (!remoteJid || !sock?.user) return false;
+function isOwnJid(session, remoteJid) {
+    if (!remoteJid || !session.sock?.user) return false;
     const remoteNumber = extractNumber(remoteJid);
-    if (remoteNumber === extractNumber(sock.user.id)) return true;
-    if (remoteNumber === extractNumber(sock.user.lid)) return true;
+    if (remoteNumber === extractNumber(session.sock.user.id)) return true;
+    if (remoteNumber === extractNumber(session.sock.user.lid)) return true;
     return false;
 }
 
-function setupEvents(sockInstance, saveCreds, handlers) {
+function setupEvents(session, sockInstance, saveCreds, handlers) {
     sockInstance.ev.on(
         'connection.update',
         async (update) => {
@@ -70,8 +84,12 @@ function setupEvents(sockInstance, saveCreds, handlers) {
                     }`
                 );
 
-                reconnecting = false;
+                session.reconnecting = false;
                 await saveCreds();
+                const connectedJid = sockInstance.user?.lid || sockInstance.user?.id;
+                if (connectedJid && session.userId !== 'legacy') {
+                    await setUserWhatsAppJid(session.userId, connectedJid);
+                }
                 await sockInstance.sendPresenceUpdate('unavailable');
                 return;
             }
@@ -88,13 +106,10 @@ function setupEvents(sockInstance, saveCreds, handlers) {
                 );
 
                 if (error) {
-                    console.error(
-                        '❌ Détails déconnexion:',
-                        error
-                    );
+                    logSafeError('Détails déconnexion', error);
                 }
 
-                sock = null;
+                session.sock = null;
 
                 if (
                     reason === DisconnectReason.loggedOut
@@ -103,17 +118,17 @@ function setupEvents(sockInstance, saveCreds, handlers) {
                         '🚪 Session WhatsApp déconnectée.'
                     );
 
-                    reconnecting = false;
-                    pairingRequested = false;
+                    session.reconnecting = false;
+                    session.pairingRequested = false;
 
                     return;
                 }
 
-                if (reconnecting) {
+                if (session.reconnecting) {
                     return;
                 }
 
-                reconnecting = true;
+                session.reconnecting = true;
 
                 console.log(
                     '🔄 Nouvelle tentative dans 2 secondes...'
@@ -121,16 +136,11 @@ function setupEvents(sockInstance, saveCreds, handlers) {
 
                 setTimeout(async () => {
                     try {
-                        await startWhatsApp(
-                            handlers
-                        );
+                        await startWhatsApp(session.userId, handlers);
                     } catch (err) {
-                        console.error(
-                            '❌ Erreur reconnexion:',
-                            err
-                        );
+                        logSafeError('Erreur reconnexion', err);
                     } finally {
-                        reconnecting = false;
+                        session.reconnecting = false;
                     }
                 }, 2000);
             }
@@ -143,10 +153,7 @@ function setupEvents(sockInstance, saveCreds, handlers) {
             try {
                 await saveCreds(updatedCreds);
             } catch (err) {
-                console.error(
-                    '❌ Erreur sauvegarde credentials:',
-                    err
-                );
+                logSafeError('Erreur sauvegarde credentials', err);
             }
         }
     );
@@ -154,15 +161,15 @@ function setupEvents(sockInstance, saveCreds, handlers) {
     sockInstance.ev.on('messages.upsert', async ({ messages }) => {
         for (const msg of messages) {
             try {
-                await handleIncomingMessage(msg, handlers);
+                await handleIncomingMessage(session, msg, handlers);
             } catch (err) {
-                console.error('❌ Erreur traitement message:', err);
+                logSafeError('Erreur traitement message', err);
             }
         }
     });
 }
 
-async function handleIncomingMessage(msg, handlers) {
+async function handleIncomingMessage(session, msg, handlers) {
     if (!msg?.key?.remoteJid) {
         return;
     }
@@ -189,9 +196,9 @@ async function handleIncomingMessage(msg, handlers) {
     }
 
     const fromMe = msg.key.fromMe;
-    const isSelfChat = fromMe && isOwnJid(remoteJid);
+    const isSelfChat = fromMe && isOwnJid(session, remoteJid);
 
-    if (fromMe && msg.key.id && sentByBot.has(msg.key.id)) {
+    if (fromMe && msg.key.id && session.sentByBot.has(msg.key.id)) {
         return;
     }
 
@@ -201,7 +208,7 @@ async function handleIncomingMessage(msg, handlers) {
 
     // Identifiant technique de l'expéditeur
     const sender = isSelfChat
-        ? (sock?.user?.id || remoteJid)
+        ? (session.sock?.user?.id || remoteJid)
         : (msg.key.participant || remoteJid);
 
     // Nom humain de l'expéditeur
@@ -214,7 +221,7 @@ async function handleIncomingMessage(msg, handlers) {
 
     if (isGroup) {
         try {
-            const metadata = await sock.groupMetadata(remoteJid);
+            const metadata = await session.sock.groupMetadata(remoteJid);
             chatName = metadata?.subject || null;
         } catch (err) {
             console.warn(
@@ -229,6 +236,7 @@ async function handleIncomingMessage(msg, handlers) {
 
     try {
         await saveMessage({
+            userId: session.userId,
             chatId: remoteJid,
             chatName,
             sender,
@@ -240,10 +248,7 @@ async function handleIncomingMessage(msg, handlers) {
             is_from_me: fromMe === true
         });
     } catch (err) {
-        console.error(
-            '❌ Erreur archivage message:',
-            err
-        );
+        logSafeError('Erreur archivage message', err);
 
         return;
     }
@@ -269,13 +274,13 @@ async function handleIncomingMessage(msg, handlers) {
     }
     if (isSelfChat) {
         const trimmed = content.trim();
-        await sendWhatsAppMessageReaction(remoteJid, "😎", msg);
+        await sendWhatsAppMessageReaction(session.userId, remoteJid, "😎", msg);
         if (trimmed.startsWith('/')) {
             if (handlers?.onCommand) {
-                await handlers.onCommand(trimmed, remoteJid);
+                await handlers.onCommand(trimmed, remoteJid, session.userId);
             }
         } else if (handlers?.onSelfChat) {
-            await handlers.onSelfChat(trimmed, remoteJid);
+            await handlers.onSelfChat(trimmed, remoteJid, session.userId);
         }
 
         return;
@@ -283,11 +288,14 @@ async function handleIncomingMessage(msg, handlers) {
 
     if (handlers?.onMessage) {
         await handlers.onMessage({
+            userId: session.userId,
             sender,
             sender_name,
             chatName,
             content,
             isGroup,
+            isStatus,
+            isNewsletter,
             timestamp,
             msg
         });
@@ -298,21 +306,30 @@ async function handleIncomingMessage(msg, handlers) {
     );
 }
 
-export async function startWhatsApp(handlers) {
+export async function startWhatsApp(userIdOrHandlers = 'legacy', maybeHandlers) {
+    const userId = typeof userIdOrHandlers === 'string'
+        ? userIdOrHandlers
+        : 'legacy';
+    const handlers = typeof userIdOrHandlers === 'string'
+        ? maybeHandlers
+        : userIdOrHandlers;
+    const session = getSession(userId);
+    session.handlers = handlers;
+
     try {
         console.log(
             '🔄 Initialisation WhatsApp...'
         );
 
         const state =
-            await createAuthState();
+            await createAuthState(userId);
 
         console.log(
             `🔐 Session enregistrée : ${state.creds.registered
             }`
         );
 
-        sock = makeWASocket({
+        session.sock = makeWASocket({
             auth: state,
             logger: pino({
                 level: 'silent'
@@ -324,7 +341,8 @@ export async function startWhatsApp(handlers) {
         });
 
         setupEvents(
-            sock,
+            session,
+            session.sock,
             state.saveCreds,
             handlers
         );
@@ -333,15 +351,16 @@ export async function startWhatsApp(handlers) {
             process.env.PHONE_NUMBER;
 
         if (
+            userId === 'legacy' &&
             phoneNumber &&
             !state.creds.registered &&
-            !pairingRequested
+            !session.pairingRequested
         ) {
-            pairingRequested = true;
+            session.pairingRequested = true;
 
             setTimeout(async () => {
                 try {
-                    if (!sock) {
+                    if (!session.sock) {
                         throw new Error(
                             'Socket WhatsApp indisponible'
                         );
@@ -358,7 +377,7 @@ export async function startWhatsApp(handlers) {
                     );
 
                     const code =
-                        await sock.requestPairingCode(
+                        await session.sock.requestPairingCode(
                             cleanNumber
                         );
 
@@ -367,12 +386,9 @@ export async function startWhatsApp(handlers) {
                     );
 
                 } catch (err) {
-                    pairingRequested = false;
+                    session.pairingRequested = false;
 
-                    console.error(
-                        '❌ Erreur pairing code:',
-                        err
-                    );
+                    logSafeError('Erreur pairing code', err);
                 }
             }, 3000);
         }
@@ -382,20 +398,18 @@ export async function startWhatsApp(handlers) {
         );
 
     } catch (err) {
-        console.error(
-            '❌ Erreur startWhatsApp:',
-            err
-        );
+        logSafeError('Erreur startWhatsApp', err);
 
         throw err;
     }
 }
 
-export async function sendWhatsAppMessage(
-    chatId,
-    text
-) {
-    if (!sock) {
+export async function sendWhatsAppMessage(...args) {
+    const [userId, chatId, text] = args.length === 2
+        ? ['legacy', ...args]
+        : args;
+    const session = getSession(userId);
+    if (!session.sock) {
         throw new Error(
             "WhatsApp n'est pas initialisé"
         );
@@ -404,15 +418,15 @@ export async function sendWhatsAppMessage(
     // On chaîne cet envoi à la suite du précédent, pour ne jamais avoir
     // deux sendMessage() en vol simultanément (source probable de la perte
     // silencieuse de messages en self-chat).
-    const task = sendQueue.then(async () => {
+    const task = session.sendQueue.then(async () => {
         try {
-            const result = await sock.sendMessage(
+            const result = await session.sock.sendMessage(
                 chatId,
                 { text }
             );
 
             if (result?.key?.id) {
-                rememberSentId(result.key.id);
+                rememberSentId(session, result.key.id);
             }
 
             console.log(
@@ -420,10 +434,7 @@ export async function sendWhatsAppMessage(
             );
 
         } catch (err) {
-            console.error(
-                '❌ Erreur envoi message:',
-                err
-            );
+            logSafeError('Erreur envoi message', err);
 
             throw err;
         }
@@ -431,25 +442,38 @@ export async function sendWhatsAppMessage(
 
     // On avale l'erreur ici pour ne pas casser la chaîne de la queue pour
     // les envois suivants, mais on la repropage à l'appelant.
-    sendQueue = task.catch(() => { });
+    session.sendQueue = task.catch(() => { });
 
     return task;
 }
 
-export async function sendWhatsAppMessageReaction(
-    chatId,
-    text,
-    incomingMessage
-) {
-    if (!sock) {
+export async function logoutWhatsApp(userId = 'legacy') {
+    const session = getSession(userId);
+    const currentSock = session.sock;
+
+    if (!currentSock) {
+        return;
+    }
+
+    await session.sendQueue;
+    await currentSock.logout();
+    session.sock = null;
+}
+
+export async function sendWhatsAppMessageReaction(...args) {
+    const [userId, chatId, text, incomingMessage] = args.length === 3
+        ? ['legacy', ...args]
+        : args;
+    const session = getSession(userId);
+    if (!session.sock) {
         throw new Error(
             "WhatsApp n'est pas initialisé"
         );
     }
 
-    const task = sendQueue.then(async () => {
+    const task = session.sendQueue.then(async () => {
         try {
-            const result = await sock.sendMessage(
+            const result = await session.sock.sendMessage(
                 chatId,
                 {
                     react: {
@@ -459,7 +483,7 @@ export async function sendWhatsAppMessageReaction(
                 });
 
             if (result?.key?.id) {
-                rememberSentId(result.key.id);
+                rememberSentId(session, result.key.id);
             }
 
             console.log(
@@ -467,10 +491,7 @@ export async function sendWhatsAppMessageReaction(
             );
 
         } catch (err) {
-            console.error(
-                '❌ Erreur envoi reaction:',
-                err
-            );
+            logSafeError('Erreur envoi reaction', err);
 
             throw err;
         }
@@ -478,7 +499,7 @@ export async function sendWhatsAppMessageReaction(
 
     // On avale l'erreur ici pour ne pas casser la chaîne de la queue pour
     // les envois suivants, mais on la repropage à l'appelant.
-    sendQueue = task.catch(() => { });
+    session.sendQueue = task.catch(() => { });
 
     return task;
 }
@@ -495,12 +516,36 @@ function stripDeviceSuffix(jid) {
 }
 
 
-export function getOwnJid() {
-    if (!sock?.user) {
+export function getOwnJid(userId = 'legacy') {
+    const session = getSession(userId);
+    if (!session.sock?.user) {
         return null;
     }
 
-    const jid = sock.user.lid || sock.user.id;
+    const jid = session.sock.user.lid || session.sock.user.id;
 
     return stripDeviceSuffix(jid);
+}
+
+export async function requestPairingCode(userId, phoneNumber) {
+    if (typeof userId !== 'string' || !userId.trim() || userId === 'legacy') {
+        throw new Error('Utilisateur WhatsApp invalide');
+    }
+
+    const cleanNumber = String(phoneNumber || '').replace(/\D/g, '');
+    if (cleanNumber.length < 8 || cleanNumber.length > 15) {
+        throw new Error('Numéro WhatsApp invalide');
+    }
+
+    const session = getSession(userId);
+    const deadline = Date.now() + 15000;
+    while (!session.sock && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+    }
+
+    if (!session.sock) {
+        throw new Error('Socket WhatsApp indisponible');
+    }
+
+    return session.sock.requestPairingCode(cleanNumber);
 }

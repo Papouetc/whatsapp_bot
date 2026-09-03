@@ -1,5 +1,10 @@
 import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
+import { logSafeError } from './logger.js';
+import {
+  getOrCreateUser,
+  getUserTelegramChatId
+} from './database.js';
 
 dotenv.config();
 
@@ -12,39 +17,59 @@ const bot = new TelegramBot(token, { polling: true });
 const chatId = process.env.TELEGRAM_CHAT_ID;
 
 let messageHandler = null;
+const userChatIds = new Map();
+
+function isAuthorizedChat(message) {
+  return message.chat?.type === 'private' && Boolean(message.from?.id);
+}
 
 export function startTelegramListener(handler) {
   messageHandler = handler;
-  
+
   bot.on('message', async (msg) => {
+    if (!isAuthorizedChat(msg)) {
+      return;
+    }
+
     const text = msg.text;
-    
-    if (text.startsWith('/')) {
-      if (messageHandler) {
-        await messageHandler(text);
-      }
+
+    if (typeof text === 'string' && text.startsWith('/') && messageHandler) {
+      const telegramUserId = msg.from?.id || msg.chat.id;
+      await getOrCreateUser(
+        telegramUserId,
+        msg.from?.username || null,
+        String(msg.chat.id)
+      );
+      userChatIds.set(String(telegramUserId), String(msg.chat.id));
+      await messageHandler(
+        text,
+        String(msg.chat.id),
+        String(telegramUserId)
+      );
     }
   });
-  
-  bot.onText(/\//, async (msg, match) => {
-    if (messageHandler) {
-      await messageHandler(msg.text);
-    }
-  });
-  
+
   console.log('📱 Telegram bot écouté');
 }
 
-export async function sendTelegramMessage(text) {
+export async function sendTelegramMessage(text, targetChatId = chatId) {
   try {
-    if (!chatId) {
+    if (!targetChatId) {
       console.warn('⚠️ TELEGRAM_CHAT_ID manquant, message non envoyé');
       return;
     }
-    
-    await bot.sendMessage(chatId, text);
+
+    await bot.sendMessage(targetChatId, text);
     console.log('✉️ Message Telegram envoyé');
   } catch (err) {
-    console.error('❌ Erreur envoi Telegram :', err);
+    logSafeError('Erreur envoi Telegram', err);
   }
+}
+
+export async function sendTelegramMessageForUser(text, userId) {
+  const targetChatId = userChatIds.get(String(userId))
+    || await getUserTelegramChatId(userId)
+    || (String(userId) === 'legacy' ? chatId : null);
+
+  return sendTelegramMessage(text, targetChatId);
 }

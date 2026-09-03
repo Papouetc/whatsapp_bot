@@ -268,7 +268,10 @@ async function callGemini(systemPrompt, userPrompt, { json = false } = {}) {
 
 
 export async function callAI(systemPrompt, userPrompt, opts = {}) {
-  const priority = (await getSetting('ai_provider_priority')) || 'groq';
+  const priority = (await getSetting(
+    'ai_provider_priority',
+    opts.userId || 'legacy'
+  )) || 'groq';
   const useGeminiFirst = priority === 'gemini';
 
   const primary = useGeminiFirst ? callGemini : callGroq;
@@ -298,7 +301,7 @@ export async function callAI(systemPrompt, userPrompt, opts = {}) {
 
 
 
-export async function summarizeMessages(messages) {
+export async function summarizeMessages(messages, userId = 'legacy') {
   if (messages.length === 0) {
     return { summary: 'Aucun nouveau message à résumer.', tasks: [] };
   }
@@ -311,7 +314,6 @@ export async function summarizeMessages(messages) {
     minute: '2-digit'
   });
 
-  console.log('📤 TEXTE ENVOYÉ À GROQ :\n', formatted);
   const raw = await callAI(
     `${PERSONALITY}
   
@@ -689,10 +691,8 @@ export async function summarizeMessages(messages) {
   Analyse-les en respectant strictement les règles ci-dessus.
   
   Renvoie uniquement le JSON demandé.`,
-    { json: true }
+    { json: true, userId }
   );
-  console.log('raw:', raw);
-
   try {
     const parsed = JSON.parse(raw);
     return {
@@ -704,7 +704,7 @@ export async function summarizeMessages(messages) {
   }
 }
 
-export async function answerSearchQuery(question, messages) {
+export async function answerSearchQuery(question, messages, userId = 'legacy') {
   if (messages.length === 0) {
     return "Aucun message disponible sur la période récente pour répondre à cette question.";
   }
@@ -713,15 +713,16 @@ export async function answerSearchQuery(question, messages) {
 
   return callAI(
     `${PERSONALITY}\n\nTu réponds à des questions en te basant UNIQUEMENT sur l'historique de messages WhatsApp fourni. Réponds en français, de façon concise et directe. Si l'information ne figure pas dans les messages fournis, dis-le clairement plutôt que d'inventer une réponse.`,
-    `Historique des messages :\n\n${formatted}\n\nQuestion : ${question}`
+    `Historique des messages :\n\n${formatted}\n\nQuestion : ${question}`,
+    { userId }
   );
 }
 
-export async function confirmUrgency(message) {
+export async function confirmUrgency(message, userId = 'legacy') {
   const raw = await callAI(
     `Tu évalues si UN SEUL message WhatsApp est réellement urgent (nécessite une action ou une réponse immédiate) ou si le mot "urgent"/similaire est juste utilisé au sens large sans vraie urgence. Sois strict \nRéponds UNIQUEMENT en JSON valide de la forme : {"urgent": true|false, "reason": "..."}`,
     `Message de ${message.sender} : "${message.content}"\n\nCe message est-il réellement urgent ?`,
-    { json: true }
+    { json: true, userId }
   );
 
   try {
@@ -732,16 +733,17 @@ export async function confirmUrgency(message) {
   }
 }
 
-export async function generateDraftReply({ sender, recentHistory, incomingContent }) {
+export async function generateDraftReply({ sender, recentHistory, incomingContent, userId = 'legacy' }) {
   const formatted = formatMessages(recentHistory);
 
   return callAI(
     `${PERSONALITY}\n\nTu prépares un BROUILLON de réponse WhatsApp que l'utilisateur va relire et valider (ou modifier) avant envoi — tu ne réponds pas encore à sa place, tu proposes juste. Base-toi sur l'historique récent de la conversation avec ce contact pour rester cohérent. Réponds uniquement avec le texte du brouillon, rien d'autre (pas de "Voici un brouillon :", juste le message tel qu'il serait envoyé).`,
-    `Conversation récente avec ${sender} :\n\n${formatted}\n\nDernier message reçu de ${sender} : "${incomingContent}"\n\nPropose un brouillon de réponse.`
+    `Conversation récente avec ${sender} :\n\n${formatted}\n\nDernier message reçu de ${sender} : "${incomingContent}"\n\nPropose un brouillon de réponse.`,
+    { userId }
   );
 }
 
-export async function chatReply({ conversationHistory, userMessage, archiveContext }) {
+export async function chatReply({ conversationHistory, userMessage, archiveContext, userId = 'legacy' }) {
   const historyText = conversationHistory
     .map((turn) => `${turn.role === 'user' ? 'Toi' : 'Bot'}: ${turn.content}`)
     .join('\n');
@@ -752,7 +754,8 @@ export async function chatReply({ conversationHistory, userMessage, archiveConte
 
   return callAI(
     `${PERSONALITY}\n\nTu discutes directement avec l'utilisateur sur WhatsApp (conversation avec toi-même). Tu as accès à la mémoire de cette conversation en cours. Tu n'as PAS accès à son historique WhatsApp archivé sauf si un extrait t'est fourni ci-dessous (l'utilisateur l'a demandé explicitement) — dans ce cas seulement, base-toi dessus. Sinon, réponds normalement en assistant, sans inventer de contenu d'archive. Réponds de façon naturelle, concise, comme dans une vraie conversation.`,
-    `Conversation en cours :\n${historyText}${archiveBlock}\n\nNouveau message de l'utilisateur : "${userMessage}"`
+    `Conversation en cours :\n${historyText}${archiveBlock}\n\nNouveau message de l'utilisateur : "${userMessage}"`,
+    { userId }
   );
 }
 
