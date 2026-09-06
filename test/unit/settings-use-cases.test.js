@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createSettingsUseCases } from '../../application/use-cases/settings-use-cases.js';
+import { createSettingsUseCases } from '../../src/application/use-cases/settings-use-cases.js';
 
 function createFakeRepository() {
     const calls = [];

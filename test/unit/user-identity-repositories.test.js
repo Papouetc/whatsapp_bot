@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createIdentityRepository } from '../../repositories/identity-repository.js';
-import { createUserRepository } from '../../repositories/user-repository.js';
+import { createIdentityRepository } from '../../src/infrastructure/database/repositories/identity-repository.js';
+import { createUserRepository } from '../../src/infrastructure/database/repositories/user-repository.js';
 
 function createFakePool() {
     const users = [

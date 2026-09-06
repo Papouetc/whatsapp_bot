@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createTaskRepository } from '../../repositories/task-repository.js';
+import { createTaskRepository } from '../../src/infrastructure/database/repositories/task-repository.js';
 
 function createFakePool() {
     const rows = [];
