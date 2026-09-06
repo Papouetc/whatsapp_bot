@@ -1,16 +1,12 @@
-import { DEFAULT_SETTINGS, getSetting } from "./database.js"
+// Façade de compatibilité pendant le refactoring architectural.
+// La logique réelle vit désormais dans
+// src/application/services/urgency-service.js.
+// Note : l'import de DEFAULT_SETTINGS présent dans l'ancien fichier
+// n'était utilisé que dans une ligne commentée (code mort) ; il n'a pas
+// été repris.
+import { getSetting } from './database.js';
+import { createUrgencyService } from './src/application/services/urgency-service.js';
 
-const FALLBACK_KEYWORDS = 'urgent,urgence,vite,immédiat,immédiatement,rapidement,dépêche,critique,emergency,asap,important,maintenant,tout de suite,au secours,help,sos,ça urge';
+const urgencyService = createUrgencyService({ getSetting });
 
-export async function isPotentiallyUrgent(content, userId = 'legacy') {
-    console.log('Verification urgence...');
-
-    let key_words = await getSetting('urgence_mot_cle', userId)
-    if (!key_words) {
-        key_words = FALLBACK_KEYWORDS;
-    }
-    key_words = key_words.split(',')
-    return (key_words.some((kw) => content.toLowerCase().includes(kw)))
-}
-
-//console.log(DEFAULT_SETTINGS.urgence_mot_cle);
+export const isPotentiallyUrgent = urgencyService.isPotentiallyUrgent;
