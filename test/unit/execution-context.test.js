@@ -7,7 +7,7 @@ import {
     getDatabaseUserId,
     isLegacyUserId,
     SOURCES
-} from '../../execution-context.js';
+} from '../../src/application/execution-context.js';
 
 test('canonical user IDs are derived from positive database IDs', () => {
     assert.equal(createCanonicalUserId(12), 'user:12');
