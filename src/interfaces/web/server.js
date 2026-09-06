@@ -1,6 +1,6 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import { main, getWhatsAppHandlers } from '../../index.js';
+import { main, getWhatsAppHandlers } from '../../bootstrap/main.js';
 import { createWebUser, getWebUserByEmail } from '../../../database.js';
 import { startWhatsApp, requestPairingCode } from '../../../whatsapp.js';
 import {
