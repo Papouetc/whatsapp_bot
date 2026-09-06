@@ -212,7 +212,7 @@ export async function main() {
         startTelegramListener(commandRouter.handleTelegramCommand);
         console.log('✅ Telegram écouté');
 
-        scheduleDailySummary();
+        scheduleDailySummary({ summarizeMessages });
         console.log('✅ Résumé quotidien programmé');
 
         printAvailableCommands();

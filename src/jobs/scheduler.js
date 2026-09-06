@@ -1,11 +1,20 @@
 import cron from 'node-cron';
-import { getUnsummarizedMessages, markAsSummarized, getSetting, saveTasks } from '../../database.js';
-import { summarizeMessages } from '../../ai.js';
-import { sendTelegramMessage } from '../../telegram.js';
-import { sendWhatsAppMessage, getOwnJid } from '../../whatsapp.js';
-import { logSafeError } from '../../logger.js';
+import { getUnsummarizedMessages, markAsSummarized, saveTasks } from '../infrastructure/database/index.js';
+import { sendTelegramMessage } from '../infrastructure/telegram/telegram-client.js';
+import { sendWhatsAppMessage, getOwnJid } from '../infrastructure/whatsapp/whatsapp-client.js';
+import { logSafeError } from '../infrastructure/logger.js';
 
-export function scheduleDailySummary() {
+/**
+ * Job planifié : résumé quotidien automatique.
+ * summarizeMessages est injecté pour ne pas dépendre directement d'une
+ * implémentation concrète du fournisseur IA (mêmes dépendances que le
+ * use case /resume, câblées une seule fois dans le bootstrap).
+ */
+export function scheduleDailySummary({ summarizeMessages }) {
+    if (typeof summarizeMessages !== 'function') {
+        throw new Error('scheduleDailySummary requires a summarizeMessages function');
+    }
+
     const userId = 'legacy';
     const summaryHour = parseInt(process.env.SUMMARY_HOUR || 22);
     const cronTime = `0 ${summaryHour} * * *`;
