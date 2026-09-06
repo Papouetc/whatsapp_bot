@@ -6,27 +6,26 @@ import {
 import {
   sendTelegramMessageForUser
 } from './telegram.js';
+import {
+  getPendingDraft,
+  markDraftSent,
+  saveDraft
+} from './database.js';
 import { logSafeError } from './logger.js';
 
-const drafts = new Map();
-let nextId = 1;
-
-export function addDraft(sender, content, sender_name, userId = 'legacy') {
+export async function addDraft(sender, content, sender_name, userId) {
   try {
-    const id = nextId++;
-
-    drafts.set(id, {
+    const draft = await saveDraft({
       sender,
       content,
       sender_name,
-      userId
-    });
+    }, userId);
 
     console.log(
-      `📝 Draft #${id} ajouté pour ${sender_name}`
+      `📝 Draft #${draft.id} ajouté pour l'utilisateur ${userId}`
     );
 
-    return id;
+    return draft.id;
 
   } catch (error) {
     logSafeError('Erreur ajout draft', error);
@@ -56,8 +55,7 @@ export async function handleDraftCommand(
       return;
     }
 
-    const draft =
-      drafts.get(id);
+    const draft = await getPendingDraft(id, userId);
 
     if (!draft || draft.userId !== userId) {
       await sendTelegramMessageForUser(
@@ -78,7 +76,11 @@ export async function handleDraftCommand(
       draft.content
     );
 
-    drafts.delete(id);
+    const markedSent = await markDraftSent(id, userId);
+
+    if (!markedSent) {
+      throw new Error(`Draft #${id} déjà consommé ou introuvable`);
+    }
 
     console.log(
       `✅ Brouillon #${id} envoyé à ${draft.sender_name || draft.sender}`
@@ -100,7 +102,7 @@ export async function handleDraftCommand(
 
     await sendTelegramMessageForUser(
       `❌ Échec de l'envoi du draft #${draftId}.\n\n` +
-      `Destinataire : ${drafts.get(parseInt(draftId, 10))?.sender || 'inconnu'}`,
+      `Le brouillon reste disponible pour une nouvelle tentative.`,
       userId
     );
   }

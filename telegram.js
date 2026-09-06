@@ -9,7 +9,7 @@ import {
 dotenv.config();
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
-const bot = token ? new TelegramBot(token, { polling: true }) : null;
+let bot = null;
 const chatId = process.env.TELEGRAM_CHAT_ID;
 
 let messageHandler = null;
@@ -22,9 +22,13 @@ function isAuthorizedChat(message) {
 export function startTelegramListener(handler) {
   messageHandler = handler;
 
-  if (!bot) {
+  if (!token) {
     console.log('📱 Telegram désactivé');
     return;
+  }
+
+  if (!bot) {
+    bot = new TelegramBot(token, { polling: true });
   }
 
   bot.on('message', async (msg) => {
@@ -36,16 +40,16 @@ export function startTelegramListener(handler) {
 
     if (typeof text === 'string' && text.startsWith('/') && messageHandler) {
       const telegramUserId = msg.from?.id || msg.chat.id;
-      await getOrCreateUser(
+      const user = await getOrCreateUser(
         telegramUserId,
         msg.from?.username || null,
         String(msg.chat.id)
       );
-      userChatIds.set(String(telegramUserId), String(msg.chat.id));
+      userChatIds.set(user.userId, String(msg.chat.id));
       await messageHandler(
         text,
         String(msg.chat.id),
-        String(telegramUserId)
+        user.userId
       );
     }
   });

@@ -54,6 +54,22 @@ import { handleChatMessage } from './chat.js';
 import { hybridSearch } from './search.js';
 import { json } from 'express';
 import { logSafeError } from './logger.js';
+import { createTaskUseCases } from './application/use-cases/task-use-cases.js';
+import { createSettingsUseCases } from './application/use-cases/settings-use-cases.js';
+
+const taskUseCases = createTaskUseCases({
+  taskRepository: {
+    listPending: getPendingTasks,
+    complete: markTaskDone
+  }
+});
+
+const settingsUseCases = createSettingsUseCases({
+  settingsRepository: {
+    list: getAllSettings,
+    set: setSetting
+  }
+});
 
 process.on('uncaughtException', (err) => {
   logSafeError('Erreur non interceptée (le bot continue)', err);
@@ -205,7 +221,7 @@ async function handleWhatsAppMessage(msgData) {
     }
 
     const draftId =
-      addDraft(
+      await addDraft(
         sender,
         draft.trim(),
         sender_name,
@@ -589,7 +605,7 @@ Le compte utilisateur est : ${jid}
 async function handleTasksCommand(reply, userId = 'legacy') {
   try {
     const tasks =
-      await getPendingTasks(userId);
+      await taskUseCases.listPending(userId);
 
     if (tasks.length === 0) {
       await reply(
@@ -640,7 +656,7 @@ async function handleTaskDoneCommand(
     }
 
     const success =
-      await markTaskDone(id, userId);
+      await taskUseCases.complete(id, userId);
 
     if (success) {
       await reply(
@@ -664,7 +680,7 @@ async function handleTaskDoneCommand(
 async function handleSettingsCommand(reply, userId = 'legacy') {
   try {
     const settings =
-      await getAllSettings(userId);
+      await settingsUseCases.list(userId);
 
     let response = await callAI(`${PERSONALITY} Tu es un assistant personnelle sur whatsapp, tu as un certains nombre de fo
       fonctinnalité. L'utilisateur te demande de faire le point sur tes settings. Présente les paramètres sous forme de sections courtes et clairement séparées.
@@ -752,7 +768,7 @@ async function handleSetCommand(
   userId = 'legacy'
 ) {
   try {
-    await setSetting(
+    await settingsUseCases.set(
       key,
       value,
       userId
