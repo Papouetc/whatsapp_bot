@@ -200,9 +200,11 @@ process.on('unhandledRejection', (err) => {
 export async function main() {
     try {
         validateEnvironment();
-        console.log('🚀 Démarrage du bot WhatsApp...');
-
+        console.log('Démarrage de hakili...');
+        console.log('before DB');
+        
         await initDB();
+        console.log('after DB');
         console.log('✅ Base de données initialisée');
 
         await startWhatsApp('legacy', getWhatsAppHandlers());

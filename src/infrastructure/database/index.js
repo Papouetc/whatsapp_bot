@@ -66,7 +66,8 @@ async function decryptMessages(rows) {
 }
 
 async function migrateTasks() {
-    const result = await pool.query('SELECT id, description, chat_id, sender FROM tasks');
+    const result = await pool.query(`SELECT id, description, chat_id, sender FROM tasks
+        WHERE chat_id_hash IS NULL`);
     for (const row of result.rows) {
         const description = decryptText(row.description) || row.description;
         const chatId = decryptText(row.chat_id) || row.chat_id;
@@ -80,7 +81,9 @@ async function migrateTasks() {
 }
 
 async function migrateMessageMetadata() {
-    const result = await pool.query('SELECT id, chat_id, chat_name, sender, sender_name FROM messages');
+    const result = await pool.query(`SELECT id, chat_id, chat_name, sender, sender_name FROM messages
+                        WHERE chat_id_hash IS NULL
+        `);
     for (const row of result.rows) {
         const chatId = decryptText(row.chat_id) || row.chat_id;
         const chatName = decryptText(row.chat_name) || row.chat_name;
@@ -95,8 +98,12 @@ async function migrateMessageMetadata() {
 }
 
 export async function initDB() {
+    console.log('init DB start');
+    
     try {
-        await pool.query(`CREATE TABLE IF NOT EXISTS users (        id SERIAL PRIMARY KEY,
+        console.log('init DB try start start');
+        await pool.query(`CREATE TABLE IF NOT EXISTS users ( 
+            id SERIAL PRIMARY KEY,
             telegram_user_id TEXT UNIQUE NOT NULL,
             telegram_username TEXT,
             telegram_chat_id TEXT,
@@ -134,9 +141,14 @@ export async function initDB() {
         await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS user_id TEXT`);
         await pool.query(`UPDATE messages SET user_id = 'legacy' WHERE user_id IS NULL`);
         await pool.query(`ALTER TABLE messages ALTER COLUMN user_id SET NOT NULL`);
+       
         await pool.query(`CREATE INDEX IF NOT EXISTS messages_user_id_timestamp_idx ON messages (user_id, timestamp)`);
+        console.log('before migrate');
+        
         await migrateMessageMetadata();
-        await pool.query(`CREATE TABLE IF NOT EXISTS tasks (        id SERIAL PRIMARY KEY,
+        console.log('after migrate');
+        
+        await pool.query(`CREATE TABLE IF NOT EXISTS tasks ( id SERIAL PRIMARY KEY,
             description TEXT NOT NULL,
             chat_id TEXT,
             sender TEXT,
@@ -146,6 +158,7 @@ export async function initDB() {
         await pool.query(`UPDATE tasks SET user_id = 'legacy' WHERE user_id IS NULL`);
         await pool.query(`ALTER TABLE tasks ALTER COLUMN user_id SET NOT NULL`);
         await pool.query(`CREATE INDEX IF NOT EXISTS tasks_user_id_done_idx ON tasks (user_id, done)`);
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS chat_id_hash TEXT`);
         await migrateTasks();
         await pool.query(`CREATE TABLE IF NOT EXISTS drafts ( 
             id SERIAL PRIMARY KEY,
@@ -153,7 +166,7 @@ export async function initDB() {
             recipient TEXT NOT NULL,
             sender_name TEXT,
             content TEXT NOT NULL,
-            status TEXT NOT DEFAULT 'pending',
+            status TEXT NOT NULL DEFAULT 'pending',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
@@ -164,7 +177,7 @@ export async function initDB() {
         }
         console.log('Base de données initialisée');
     } catch (err) {
-        logSafeError('Erreur initialisation DB', err);
+        console.log('Erreur initialisation DB', err);
         throw err;
     }
 }
