@@ -12,9 +12,9 @@ import {
     markTaskDone,
     saveTasks,
     getConversationHistory,
-   /*  getPendingDraft,
+    getPendingDraft,
     markDraftSent,
-    saveDraft, */
+    saveDraft, 
     searchArchiveByKeyword,
     deleteAllStoredData
 } from '../infrastructure/database/index.js';
@@ -70,7 +70,7 @@ const settingsUseCases = createSettingsUseCases({
     }
 });
 
-/* const draftUseCases = createDraftUseCases({
+ const draftUseCases = createDraftUseCases({
     draftRepository: {
         create: saveDraft,
         findPendingById: getPendingDraft,
@@ -80,7 +80,7 @@ const settingsUseCases = createSettingsUseCases({
     sendTelegramMessageForUser,
     getOwnJid,
     logSafeError
-}); */
+}); 
 
 const chatUseCase = createChatUseCase({
     sendWhatsAppMessage,
@@ -103,7 +103,7 @@ const messageProcessingUseCase = createMessageProcessingUseCase({
     getOwnJid,
     getConversationHistory,
     generateDraftReply,
-    //addDraft: draftUseCases.addDraft,
+    addDraft: draftUseCases.addDraft,
     logSafeError
 });
 
@@ -132,7 +132,7 @@ async function pairWhatsApp(userId, phoneNumber) {
 
 const commandRouter = createCommandRouter({
     commandUseCases,
-   // draftUseCases,
+    draftUseCases,
     pairWhatsApp,
     sendWhatsAppMessage,
     sendTelegramMessageForUser,

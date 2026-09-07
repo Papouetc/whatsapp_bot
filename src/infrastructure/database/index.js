@@ -147,8 +147,18 @@ export async function initDB() {
         await pool.query(`ALTER TABLE tasks ALTER COLUMN user_id SET NOT NULL`);
         await pool.query(`CREATE INDEX IF NOT EXISTS tasks_user_id_done_idx ON tasks (user_id, done)`);
         await migrateTasks();
-        //await pool.query(`CREATE TABLE IF NOT EXISTS drafts ( )`);
-        //await pool.query(`CREATE INDEX IF NOT EXISTS drafts_user_id_status_idx ON drafts (user_id, status)`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS drafts ( 
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            recipient TEXT NOT NULL,
+            sender_name TEXT,
+            content TEXT NOT NULL,
+            status TEXT NOT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+         )`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS drafts_user_id_status_idx ON drafts (user_id, status)`);
         for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
             await pool.query(`INSERT INTO settings (key, user_id, value) VALUES ($1, $2, $3) ON CONFLICT (user_id, key) DO NOTHING`, [key, 'legacy', value]);
         }
@@ -215,10 +225,10 @@ export async function getAllSettings(userId = 'legacy') { return settingsReposit
 export async function markTaskDone(id, userId = 'legacy') { return taskRepository.complete(id, userId); }
 export async function getPendingTasks(userId = 'legacy') { return taskRepository.listPending(userId); }
 export async function saveTasks(tasks, userId = 'legacy') { return taskRepository.createMany(tasks, userId); }
-/* export async function saveDraft(draft, userId) { return draftRepository.create(draft, userId); }
+export async function saveDraft(draft, userId) { return draftRepository.create(draft, userId); }
 export async function getPendingDraft(id, userId) { return draftRepository.findPendingById(id, userId); }
 export async function getPendingDrafts(userId) { return draftRepository.listPending(userId); }
-export async function markDraftSent(id, userId) { return draftRepository.markSent(id, userId); } */
+export async function markDraftSent(id, userId) { return draftRepository.markSent(id, userId); } 
 
 export async function searchArchiveByKeyword(keyword, limit = 50, userId = 'legacy') {
     const result = await pool.query(`SELECT * FROM messages WHERE is_status = FALSE AND user_id = $1 ORDER BY timestamp DESC`, [userId]);

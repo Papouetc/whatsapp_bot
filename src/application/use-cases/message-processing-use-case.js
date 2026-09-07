@@ -26,8 +26,8 @@ export function createMessageProcessingUseCase({
     sendWhatsAppMessage,
     getOwnJid,
     getConversationHistory,
-   //*  generateDraftReply,
-    //addDraft, */
+    generateDraftReply,
+    addDraft, 
     logSafeError
 }) {
     requireFunction(getSetting, 'getSetting');
@@ -37,8 +37,8 @@ export function createMessageProcessingUseCase({
     requireFunction(sendWhatsAppMessage, 'sendWhatsAppMessage');
     requireFunction(getOwnJid, 'getOwnJid');
     requireFunction(getConversationHistory, 'getConversationHistory');
-   // requireFunction(generateDraftReply, 'generateDraftReply');
-    //requireFunction(addDraft, 'addDraft');
+    requireFunction(generateDraftReply, 'generateDraftReply');
+    requireFunction(addDraft, 'addDraft');
     requireFunction(logSafeError, 'logSafeError');
 
     async function handleWhatsAppMessage(msgData) {

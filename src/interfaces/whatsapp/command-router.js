@@ -46,7 +46,7 @@ const HELP_TEXT = `
  */
 export function createCommandRouter({
     commandUseCases,
-   // draftUseCases,
+    draftUseCases,
     pairWhatsApp,
     sendWhatsAppMessage,
     sendTelegramMessageForUser,
@@ -55,9 +55,9 @@ export function createCommandRouter({
     if (!commandUseCases) {
         throw new Error('Command router requires commandUseCases');
     }
-   /*  if (!draftUseCases || typeof draftUseCases.handleDraftCommand !== 'function') {
+   if (!draftUseCases || typeof draftUseCases.handleDraftCommand !== 'function') {
         throw new Error('Command router requires draftUseCases');
-    } */
+    } 
     requireFunction(pairWhatsApp, 'pairWhatsApp');
     requireFunction(sendWhatsAppMessage, 'sendWhatsAppMessage');
     requireFunction(sendTelegramMessageForUser, 'sendTelegramMessageForUser');
