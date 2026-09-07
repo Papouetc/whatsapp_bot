@@ -96,20 +96,37 @@ async function migrateMessageMetadata() {
 
 export async function initDB() {
     try {
-        await pool.query(`CREATE TABLE IF NOT EXISTS users (...)`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS users (        id SERIAL PRIMARY KEY,
+            telegram_user_id TEXT UNIQUE NOT NULL,
+            telegram_username TEXT,
+            telegram_chat_id TEXT,
+            whatsapp_jid TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
         await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT`);
         await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_jid TEXT`);
         await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`);
         await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT`);
         await pool.query(`ALTER TABLE users ALTER COLUMN telegram_user_id DROP NOT NULL`);
         await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_email_key ON users (LOWER(email)) WHERE email IS NOT NULL`);
-        await pool.query(`CREATE TABLE IF NOT EXISTS settings (...)`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS settings (        key TEXT NOT NULL,
+            user_id TEXT NOT NULL DEFAULT 'legacy',
+            PRIMARY KEY (user_id, key),
+            value TEXT NOT NULL)`);
         await pool.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS user_id TEXT`);
         await pool.query(`UPDATE settings SET user_id = 'legacy' WHERE user_id IS NULL`);
         await pool.query(`ALTER TABLE settings ALTER COLUMN user_id SET NOT NULL`);
         await pool.query(`ALTER TABLE settings DROP CONSTRAINT IF EXISTS settings_pkey`);
         await pool.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'settings'::regclass AND contype = 'p') THEN ALTER TABLE settings ADD PRIMARY KEY (user_id, key); END IF; END $$;`);
-        await pool.query(`CREATE TABLE IF NOT EXISTS messages (...)`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS messages (        id SERIAL PRIMARY KEY,
+            chat_id TEXT NOT NULL,
+            chat_name TEXT,
+            sender TEXT,
+            content TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            is_group BOOLEAN NOT NULL,
+            summarized BOOLEAN NOT NULL DEFAULT FALSE,
+            is_status BOOLEAN NOT NULL DEFAULT FALSE)`);
         await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_name TEXT`);
         await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_from_me BOOLEAN NOT NULL DEFAULT FALSE`);
         await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS chat_id_hash TEXT`);
@@ -119,18 +136,23 @@ export async function initDB() {
         await pool.query(`ALTER TABLE messages ALTER COLUMN user_id SET NOT NULL`);
         await pool.query(`CREATE INDEX IF NOT EXISTS messages_user_id_timestamp_idx ON messages (user_id, timestamp)`);
         await migrateMessageMetadata();
-        await pool.query(`CREATE TABLE IF NOT EXISTS tasks (...)`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS tasks (        id SERIAL PRIMARY KEY,
+            description TEXT NOT NULL,
+            chat_id TEXT,
+            sender TEXT,
+            detected_at INTEGER NOT NULL,
+            done BOOLEAN NOT NULL DEFAULT FALSE)`);
         await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS user_id TEXT`);
         await pool.query(`UPDATE tasks SET user_id = 'legacy' WHERE user_id IS NULL`);
         await pool.query(`ALTER TABLE tasks ALTER COLUMN user_id SET NOT NULL`);
         await pool.query(`CREATE INDEX IF NOT EXISTS tasks_user_id_done_idx ON tasks (user_id, done)`);
         await migrateTasks();
-        await pool.query(`CREATE TABLE IF NOT EXISTS drafts (...)`);
-        await pool.query(`CREATE INDEX IF NOT EXISTS drafts_user_id_status_idx ON drafts (user_id, status)`);
+        //await pool.query(`CREATE TABLE IF NOT EXISTS drafts ( )`);
+        //await pool.query(`CREATE INDEX IF NOT EXISTS drafts_user_id_status_idx ON drafts (user_id, status)`);
         for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
             await pool.query(`INSERT INTO settings (key, user_id, value) VALUES ($1, $2, $3) ON CONFLICT (user_id, key) DO NOTHING`, [key, 'legacy', value]);
         }
-        console.log('✅ Base de données initialisée');
+        console.log('Base de données initialisée');
     } catch (err) {
         logSafeError('Erreur initialisation DB', err);
         throw err;
@@ -139,7 +161,7 @@ export async function initDB() {
 
 export async function closeDB() {
     await pool.end();
-    console.log('✅ Connexion base de données fermée');
+    console.log('Connexion base de données fermée');
 }
 
 export async function getOrCreateUser(telegramUserId, telegramUsername = null, telegramChatId = null) {
@@ -193,10 +215,10 @@ export async function getAllSettings(userId = 'legacy') { return settingsReposit
 export async function markTaskDone(id, userId = 'legacy') { return taskRepository.complete(id, userId); }
 export async function getPendingTasks(userId = 'legacy') { return taskRepository.listPending(userId); }
 export async function saveTasks(tasks, userId = 'legacy') { return taskRepository.createMany(tasks, userId); }
-export async function saveDraft(draft, userId) { return draftRepository.create(draft, userId); }
+/* export async function saveDraft(draft, userId) { return draftRepository.create(draft, userId); }
 export async function getPendingDraft(id, userId) { return draftRepository.findPendingById(id, userId); }
 export async function getPendingDrafts(userId) { return draftRepository.listPending(userId); }
-export async function markDraftSent(id, userId) { return draftRepository.markSent(id, userId); }
+export async function markDraftSent(id, userId) { return draftRepository.markSent(id, userId); } */
 
 export async function searchArchiveByKeyword(keyword, limit = 50, userId = 'legacy') {
     const result = await pool.query(`SELECT * FROM messages WHERE is_status = FALSE AND user_id = $1 ORDER BY timestamp DESC`, [userId]);
