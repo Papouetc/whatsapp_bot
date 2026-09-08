@@ -109,7 +109,7 @@ async function handleWhatsAppMessage(msgData) {
   } = msgData;
 
   console.log(
-    `📩 Message de ${sender_name || sender}: ${content?.substring(0, 50)}...`
+    `Message de ${sender_name || sender}: ${content?.substring(0, 50)}...`
   );
 
   const urgencyDetectionOn =
@@ -176,10 +176,10 @@ async function handleWhatsAppMessage(msgData) {
   if (content.trim().startsWith('/')) {
     return;
   }
-
+  await createDraft(msgData);
 }
 
-await createDraft(msgData);
+
 
 function createReply(source, sender) {
   if (source === 'whatsapp') {
