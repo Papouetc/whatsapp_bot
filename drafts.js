@@ -110,3 +110,88 @@ export async function handleDraftCommand(
     );
   }
 }
+function isneedDraft(content){
+      let key_words= 
+      key_words= key_words.split(',')
+      return (key_words.some((kw)=>content.toLowerCase().includes(kw)))
+}
+export async function createDraft(msgData){
+  const {
+    sender,
+    sender_name,
+    content
+  } = msgData;
+  try {
+  console.log(
+    `Génération draft pour ${sender_name || sender}`
+  );
+
+  const recentHistory =
+    await getConversationHistory(
+      sender,
+      20,
+      msgData.id
+    );
+
+  console.log(
+    `Historique conversation : ${recentHistory.length} messages`
+  );
+
+  const draft =
+    await generateDraftReply({
+      sender,
+      recentHistory,
+      incomingContent: content
+    });
+
+  if (!draft?.trim()) {
+    console.log(
+      'Aucun draft généré'
+    );
+
+    return;
+  }
+
+  const draftId =
+    addDraft(
+      sender,
+      draft.trim(),
+      sender_name
+    );
+
+  if (!draftId) {
+    console.error(
+      'Impossible de créer le draft'
+    );
+
+    return;
+  }
+
+  console.log(
+    ` Draft #${draftId} créé`
+  );
+
+  const displayName = sender_name || sender;
+  const draftMessage=  `📝 Brouillon #${draftId}\n\n` +
+  `Vous avez reçu un message de 👤 ${sender_name || sender}:\n\nMessage: ${content?.substring(0, 100)}...\n\n`+
+  `Voici une proposition de réponse: \n\n` +
+  `${draft.trim()}\n\n` +
+  `📤 Entrez : /envoie ${draftId} pour que je lui envoie directement la réponse`
+  let jid= getOwnJid();
+  console.log('jid: ',jid);
+  
+  await sendTelegramMessage( draftMessage
+  );
+  await sendWhatsAppMessage(jid,draftMessage
+   )
+  console.log(
+    ` Draft #${draftId} envoyé sur Telegram et whatsapp`
+  );
+
+} catch (err) {
+  console.error(
+    'Erreur génération brouillon:',
+    err
+  );
+}
+}

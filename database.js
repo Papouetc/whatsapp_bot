@@ -57,6 +57,10 @@ export async function initDB() {
         ADD COLUMN IF NOT EXISTS is_from_me BOOLEAN NOT NULL DEFAULT FALSE
       `)
 
+      await pool.query(`
+        ALTER TABLE messages
+        ALTER COLUMN timestamp TYPE BIGINT;
+      `)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS tasks (
         id SERIAL PRIMARY KEY,

@@ -40,7 +40,7 @@ import {
 } from './ai.js';
 
 import {
-  addDraft,
+  createDraft,
   handleDraftCommand
 } from './drafts.js';
 
@@ -51,24 +51,24 @@ import { json } from 'express';
 
 process.on('uncaughtException', (err) => {
   console.error(
-    '⚠️ Erreur non interceptée (le bot continue) :',
+    ' Erreur non interceptée (le bot continue) :',
     err.message
   );
 });
 
 process.on('unhandledRejection', (err) => {
   console.error(
-    '⚠️ Rejet de promesse non intercepté (le bot continue) :',
+    ' Rejet de promesse non intercepté (le bot continue) :',
     err
   );
 });
 
 export async function main() {
   try {
-    console.log('🚀 Démarrage du bot WhatsApp...');
+    console.log('Démarrage du bot WhatsApp...');
 
     await initDB();
-    console.log('✅ Base de données initialisée');
+    console.log('Base de données initialisée');
 
     await startWhatsApp({
       onMessage: handleWhatsAppMessage,
@@ -76,19 +76,19 @@ export async function main() {
       onSelfChat: handleChatMessage
     });
 
-    console.log('✅ WhatsApp connecté');
+    console.log(' WhatsApp connecté');
 
     startTelegramListener(handleTelegramCommand);
-    console.log('✅ Telegram écouté');
+    console.log(' Telegram écouté');
 
     scheduleDailySummary();
-    console.log('✅ Résumé quotidien programmé');
+    console.log(' Résumé quotidien programmé');
 
     printAvailableCommands();
 
   } catch (err) {
     console.error(
-      '❌ Erreur fatale au démarrage :',
+      ' Erreur fatale au démarrage :',
       err
     );
 
@@ -119,7 +119,7 @@ async function handleWhatsAppMessage(msgData) {
   
   if (
     urgencyDetectionOn &&
-    isPotentiallyUrgent(content)
+    await isPotentiallyUrgent(content)
   ) {
     try {
       console.log('content', content);
@@ -152,7 +152,7 @@ async function handleWhatsAppMessage(msgData) {
 
     } catch (err) {
       console.error(
-        '❌ Erreur détection urgence:',
+        ' Erreur détection urgence:',
         err
       );
     }
@@ -177,80 +177,9 @@ async function handleWhatsAppMessage(msgData) {
     return;
   }
 
-  try {
-    console.log(
-      `📝 Génération draft pour ${sender_name || sender}`
-    );
-
-    const recentHistory =
-      await getConversationHistory(
-        sender,
-        20,
-        msgData.id
-      );
-
-    console.log(
-      `📚 Historique conversation : ${recentHistory.length} messages`
-    );
-
-    const draft =
-      await generateDraftReply({
-        sender,
-        recentHistory,
-        incomingContent: content
-      });
-
-    if (!draft?.trim()) {
-      console.log(
-        '⚠️ Aucun draft généré'
-      );
-
-      return;
-    }
-
-    const draftId =
-      addDraft(
-        sender,
-        draft.trim(),
-        sender_name
-      );
-
-    if (!draftId) {
-      console.error(
-        '❌ Impossible de créer le draft'
-      );
-
-      return;
-    }
-
-    console.log(
-      `📝 Draft #${draftId} créé`
-    );
-
-    const displayName = sender_name || sender;
-    const draftMessage=  `📝 Brouillon #${draftId}\n\n` +
-    `Vous avez reçu un message de 👤 ${sender_name || sender}:\n\nMessage: ${content?.substring(0, 100)}...\n\n`+
-    `Voici une proposition de réponse: \n\n` +
-    `${draft.trim()}\n\n` +
-    `📤 Entrez : /envoie ${draftId} pour que je lui envoie directement la réponse`
-    let jid= getOwnJid();
-    console.log('jid: ',jid);
-    
-    await sendTelegramMessage( draftMessage
-    );
-    await sendWhatsAppMessage(jid,draftMessage
-     )
-    console.log(
-      `📲 Draft #${draftId} envoyé sur Telegram et whatsapp`
-    );
-
-  } catch (err) {
-    console.error(
-      '❌ Erreur génération brouillon:',
-      err
-    );
-  }
 }
+
+await createDraft(msgData);
 
 function createReply(source, sender) {
   if (source === 'whatsapp') {
@@ -293,7 +222,7 @@ async function handleCommand(
 
       if (!query) {
         await reply(
-          '❌ Utilisation : /search <question>'
+          'Utilisation : /search <question>'
         );
         return;
       }
@@ -315,7 +244,7 @@ async function handleCommand(
 
       if (!taskId) {
         await reply(
-          '❌ Utilisation : /fait <id>'
+          ' Utilisation : /fait <id>'
         );
         return;
       }
@@ -333,7 +262,7 @@ async function handleCommand(
 
       if (!draftId) {
         await reply(
-          '❌ Utilisation : /envoie <id>'
+          ' Utilisation : /envoie <id>'
         );
         return;
       }
@@ -357,7 +286,7 @@ async function handleCommand(
 
       if (!key || !value) {
         await reply(
-          '❌ Utilisation : /set <clé> <valeur>'
+          ' Utilisation : /set <clé> <valeur>'
         );
         return;
       }
@@ -411,7 +340,7 @@ async function handleResumeCommand(reply) {
 
     if (messages.length === 0) {
       await reply(
-        '✅ Aucun nouveau message à résumer.'
+        ' Aucun nouveau message à résumer.'
       );
       return;
     }
@@ -446,7 +375,7 @@ async function handleResumeCommand(reply) {
     );
 
     await reply(
-      '❌ Erreur lors de la génération du résumé.'
+      ' Erreur lors de la génération du résumé.'
     );
   }
 }
@@ -460,13 +389,13 @@ async function handleSearchCommand(
   try {
     if (!query?.trim()) {
       await reply(
-        '❌ Utilisation : /search <question>'
+        ' Utilisation : /search <question>'
       );
       return;
     }
 
     console.log(
-      `🔎 Recherche : ${query}`
+      `Recherche : ${query}`
     );
 
     const results =
@@ -500,7 +429,7 @@ async function handleSearchCommand(
         .join('\n');
 
     console.log(
-      '📚 CONTEXTE ENVOYÉ À L’IA:\n',
+      'CONTEXTE ENVOYÉ À L’IA:\n',
       context
     );
 
@@ -558,12 +487,12 @@ Le compte utilisateur est : ${jid}
 
   } catch (err) {
     console.error(
-      '❌ Erreur /search :',
+      ' Erreur /search :',
       err
     );
 
     await reply(
-      '❌ Une erreur est survenue pendant la recherche.'
+      ' Une erreur est survenue pendant la recherche.'
     );
   }
 }
@@ -575,7 +504,7 @@ async function handleTasksCommand(reply) {
 
     if (tasks.length === 0) {
       await reply(
-        '✅ Aucune tâche en attente.'
+        ' Aucune tâche en attente.'
       );
       return;
     }
@@ -595,12 +524,12 @@ async function handleTasksCommand(reply) {
 
   } catch (err) {
     console.error(
-      '❌ Erreur /taches :',
+      ' Erreur /taches :',
       err
     );
 
     await reply(
-      '❌ Impossible de récupérer les tâches.'
+      ' Impossible de récupérer les tâches.'
     );
   }
 }
@@ -618,7 +547,7 @@ async function handleTaskDoneCommand(
       id <= 0
     ) {
       await reply(
-        '❌ Identifiant de tâche invalide.'
+        ' Identifiant de tâche invalide.'
       );
       return;
     }
@@ -628,11 +557,11 @@ async function handleTaskDoneCommand(
 
     if (success) {
       await reply(
-        `✅ Tâche ${id} marquée comme terminée.`
+        ` Tâche ${id} marquée comme terminée.`
       );
     } else {
       await reply(
-        `❌ Tâche ${id} introuvable ou déjà terminée.`
+        ` Tâche ${id} introuvable ou déjà terminée.`
       );
     }
 
@@ -643,7 +572,7 @@ async function handleTaskDoneCommand(
     );
 
     await reply(
-      '❌ Erreur lors de la mise à jour de la tâche.'
+      ' Erreur lors de la mise à jour de la tâche.'
     );
   }
 }
@@ -710,7 +639,7 @@ async function handleSettingsCommand(reply) {
     );
 
     await reply(
-      '❌ Erreur lors de la récupération des paramètres.'
+      ' Erreur lors de la récupération des paramètres.'
     );
   }
 }
@@ -727,7 +656,7 @@ async function handleSetCommand(
     );
 
     await reply(
-      `✅ ${key} défini à ${value}`
+      ` ${key} défini à ${value}`
     );
 
   } catch (err) {
@@ -737,14 +666,14 @@ async function handleSetCommand(
     );
 
     await reply(
-      '❌ Erreur lors de la mise à jour du paramètre.'
+      ' Erreur lors de la mise à jour du paramètre.'
     );
   }
 }
 
 async function handleHelpCommand(reply) {
   const help = `
-📱 Commandes disponibles :
+ Commandes disponibles :
 
 /resume
 → Résumé immédiat
@@ -773,7 +702,7 @@ async function handleHelpCommand(reply) {
 
 function printAvailableCommands() {
   console.log(
-    '\n📱 Commandes disponibles (WhatsApp + Telegram):'
+    '\n Commandes disponibles (WhatsApp + Telegram):'
   );
 
   console.log(
