@@ -115,14 +115,14 @@ async function handleWhatsAppMessage(msgData) {
   const urgencyDetectionOn =
     (await getSetting('urgency_detection')) === 'on';
   console.log('urgency dtect:', urgencyDetectionOn);
-  console.log('isPotentiallyUrgent(content):', isPotentiallyUrgent(content));
+  let urgent= await isPotentiallyUrgent(content)
+  console.log('isPotentiallyUrgent(content):', urgent);
   
   if (
-    urgencyDetectionOn &&
-    await isPotentiallyUrgent(content)
+    urgencyDetectionOn && urgent
   ) {
     try {
-      console.log('content', content);
+      //console.log('content', content);
       
       const {
         urgent,

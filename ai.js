@@ -175,11 +175,13 @@ Lorsque l'identité d'un expéditeur, une échéance, une tâche ou une informat
 
 Si rien ne nécessite réellement son attention, ne remplis pas la réponse avec du bruit simplement pour produire un résumé plus long.
 
-Ta réponse sera envoyé sur un chat whatsapp, respecte ces régles de formatting et utilise en d'autres si necessaires mais uniquement si adapté à whatsapp:
+Ta réponse sera envoyé sur un chat whatsapp, 
+respecte ces régles de formatting et utilise en d'autres si necessaires mais uniquement si adapté à whatsapp:
 Use single asterisks for bold headlines, 
 use underscores for italics, keep paragraphs short, use bullet points for lists, 
 and avoid standard markdown like double asterisks or hash symbols (#) 
 because they do not work on WhatsApp.
+N'utilise pas de double astérix.
 `;
 
 function formatMessages(messages) {
@@ -314,20 +316,20 @@ export async function summarizeMessages(messages) {
   const formatted = formatMessages(messages);
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
-  const currentTime = now.toLocaleTimeString('fr-FR', {
+  const currentTime = now.toLocaleTimeString ('fr-FR', {
     hour: '2-digit',
     minute: '2-digit'
   });
 
   console.log('📤 TEXTE ENVOYÉ À GROQ :\n', formatted);
-  const raw = await callAI(
-    `${PERSONALITY}
+  const raw = await callAI(PERSONALITY,
   
-  Tu es un assistant chargé de résumer précisément des conversations WhatsApp en français.
+  `Tu es un assistant chargé de résumer précisément des conversations WhatsApp en français.
   
   OBJECTIF :
   Produire un résumé utile à quelqu'un qui n'a pas le temps de relire ses messages.
-  Le résumé doit permettre de comprendre rapidement CE QUI S'EST PASSÉ dans chaque conversation, ce qui a été demandé, décidé, promis ou laissé en attente.
+  Le résumé doit permettre de comprendre rapidement CE QUI S'EST PASSÉ dans chaque conversation, 
+  ce qui a été demandé, décidé, promis ou laissé en attente.
   
   Le résumé doit être factuel, précis, concis et orienté vers les informations utiles.
   
@@ -537,7 +539,7 @@ export async function summarizeMessages(messages) {
   - messages qui n'apportent aucun élément permettant de comprendre une situation.
   
   Ne crée PAS une puce pour une conversation simplement parce qu'elle existe.
-  
+  Si tu remarque que l'utilisateur a déja repondu a un messages ou déja réagit à un message ignore-le aussi.
   ════════════════════════════════════
   IDENTIFICATION DES CONVERSATIONS
   ════════════════════════════════════
@@ -549,7 +551,8 @@ export async function summarizeMessages(messages) {
   N'utilise le chat_id ou un identifiant technique comme nom que si aucun nom exploitable n'est disponible.
   
   Le chat_id est une donnée technique et ne doit jamais remplacer inutilement le nom du contact ou du groupe.
-  
+
+  le label [UTILISATEUR] désigne les messages de ton l'utilisateur 
   ════════════════════════════════════
   FORMAT DU RÉSUMÉ
   ════════════════════════════════════
@@ -719,14 +722,14 @@ export async function answerSearchQuery(question, messages) {
 
   const formatted = formatMessages(messages.slice().reverse());
 
-  return callAI(
+  return callAI(PERSONALITY,
     `${PERSONALITY}\n\nTu réponds à des questions en te basant UNIQUEMENT sur l'historique de messages WhatsApp fourni. Réponds en français, de façon concise et directe. Si l'information ne figure pas dans les messages fournis, dis-le clairement plutôt que d'inventer une réponse.`,
     `Historique des messages :\n\n${formatted}\n\nQuestion : ${question}`
   );
 }
 
 export async function confirmUrgency(message) {
-  const raw = await callAI(
+  const raw = await callAI(PERSONALITY,
     `Tu évalues si UN SEUL message WhatsApp est réellement urgent (nécessite une action ou une réponse immédiate) ou si le mot "urgent"/similaire est juste utilisé au sens large sans vraie urgence. Sois strict \nRéponds UNIQUEMENT en JSON valide de la forme : {"urgent": true|false, "reason": "..."}`,
     `Message de ${message.sender} : "${message.content}"\n\nCe message est-il réellement urgent ?`,
     { json: true }
@@ -743,8 +746,8 @@ export async function confirmUrgency(message) {
 export async function generateDraftReply({ sender, recentHistory, incomingContent }) {
   const formatted = formatMessages(recentHistory);
 
-  return callAI(
-    `${PERSONALITY}\n\nTu prépares un BROUILLON de réponse WhatsApp que l'utilisateur va relire et
+  return callAI(PERSONALITY,
+    `\n\nTu prépares un BROUILLON de réponse WhatsApp que l'utilisateur va relire et
      valider (ou modifier) avant envoi — 
     tu ne réponds pas encore à sa place, tu proposes juste.
      Base-toi sur l'historique récent de la conversation avec ce contact pour rester cohérent. 
@@ -773,7 +776,11 @@ export async function chatReply({ conversationHistory, userMessage, archiveConte
     : '';
 
   return callAI(
-    `${PERSONALITY}\n\nTu discutes directement avec l'utilisateur sur WhatsApp (conversation avec toi-même). Tu as accès à la mémoire de cette conversation en cours. Tu n'as PAS accès à son historique WhatsApp archivé sauf si un extrait t'est fourni ci-dessous (l'utilisateur l'a demandé explicitement) — dans ce cas seulement, base-toi dessus. Sinon, réponds normalement en assistant, sans inventer de contenu d'archive. Réponds de façon naturelle, concise, comme dans une vraie conversation.`,
+    `${PERSONALITY}\n\nTu discutes directement avec l'utilisateur sur WhatsApp (conversation avec toi-même). Tu as accès à la mémoire de cette conversation en cours. 
+    Tu n'as PAS accès à son historique WhatsApp archivé sauf si un extrait t'est fourni ci-dessous 
+    (l'utilisateur l'a demandé explicitement) — dans ce cas seulement, base-toi dessus. 
+    Sinon, réponds normalement en assistant, sans inventer de contenu d'archive. 
+    Réponds de façon naturelle, concise, comme dans une vraie conversation.`,
     `Conversation en cours :\n${historyText}${archiveBlock}\n\nNouveau message de l'utilisateur : "${userMessage}"`
   );
 }

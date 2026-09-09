@@ -124,13 +124,15 @@ async function confirmDraftNeed(message) {
     `Tu analyses un message WhatsApp.
 
     Question : Ce message nécessite-t-il une action, une décision ou une réponse de l'utilisateur, 
-    pour lui envoyer une notification avec une suggestion de brouillon  ?
+    afin lui envoyer une notification avec une suggestion de brouillon  ?
     
     Critères OUI :
     - Question directe
     - Demande d'action explicite
     - Mention de date/heure/échéance
     - Urgence réelle (pas rhétorique)
+    - Demande d'avis sur un projet
+    - 
     
     Critères NON :
     - Small talk, politesse
