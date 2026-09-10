@@ -682,6 +682,12 @@ export async function summarizeMessages(messages) {
   }
   
   Le champ "summary" doit contenir le texte déjà formaté en puces, prêt à être envoyé sur Telegram ou WhatsApp.
+    
+  Le champ "summary" doit contenir le texte déjà formaté en puces, prêt à être envoyé sur Telegram ou WhatsApp.
+  Si tu ne reçois aucun message cela signifie qu'il ont été tous résumés ou que l'utilisateur 
+  vient tout juste de connecter son compte à toi qu'il n'y a pas suffisament de messages pertinents 
+  pour un résumé. Indique tout simplement cela à l'utilisateur en lui 
+  indiquant de patienter et reesayer plus tard. Rappel toi l'utilisateur ne connait rien de ton fonctionnement interne.
   
   N'ajoute aucun texte avant ou après le JSON.
   
